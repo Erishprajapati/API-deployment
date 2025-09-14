@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
@@ -21,8 +22,12 @@ schema_view = get_schema_view(
     public=True,
     permission_classes=[permissions.AllowAny],
 )
+def home(request):
+    return HttpResponse("Welcome to Project Management API!")
+
 
 urlpatterns = [
+    path("", home),
     path("admin/", admin.site.urls),
     path("api/employees/", include("employee.urls", namespace="employee")),
     path("api/projects/", include("projects.urls")),
