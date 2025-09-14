@@ -89,18 +89,14 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'project_management.wsgi.application'
 
-
-# Database
-# Using SQLite by default, but easily switchable via .env
 DATABASES = {
     'default': {
         'ENGINE': config('DB_ENGINE'),
-        'NAME': BASE_DIR / config('DB_NAME'),
-        # Uncomment and update these for PostgreSQL
-        # 'USER': config('DB_USER', default=''),
-        # 'PASSWORD': config('DB_PASSWORD', default=''),
-        # 'HOST': config('DB_HOST', default='localhost'),
-        # 'PORT': config('DB_PORT', default=''),
+        'NAME': config('DB_NAME'),
+        'USER': config('DB_USER', default=''),
+        'PASSWORD': config('DB_PASSWORD', default=''),
+        'HOST': config('DB_HOST', default=''),
+        'PORT': config('DB_PORT', default='5432'),
     }
 }
 
