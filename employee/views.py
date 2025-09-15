@@ -122,4 +122,14 @@ class WorkingHourViewSet(viewsets.ModelViewSet):
 class EmployeeScheduleViewSet(viewsets.ModelViewSet):
     queryset = EmployeeSchedule.objects.all()
     serializer_class = EmployeeScheduleSerializer
-    permission_classes = [IsProjectManagerOrSuperUserOrHR]
+    permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
+
+    def get_queryset(self):
+        user = self.request.user  
+
+        # HR, PM, Admin, Team Lead → all schedules
+        if has_role(user, Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD):
+            return EmployeeProfile.objects.all().order_by("id")
+
+        # Normal employee → only their own profile
+        return EmployeeProfile.objects.filter(employee__user=user)

@@ -17,17 +17,28 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
 
 class ProjectSerializer(serializers.ModelSerializer):
     manager = EmployeeNestedMinimalSerializer(read_only=True)
+    manager_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(), write_only=True, source='manager'
+    )
     team_lead = EmployeeNestedMinimalSerializer(read_only=True)
+    team_lead_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(), write_only=True, source='team_lead'
+    )
     members = EmployeeNestedMinimalSerializer(read_only=True, many=True)
+    member_ids = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(), write_only=True, many=True, source='members', required=False
+    )
     documents = ProjectDocumentSerializer(read_only=True, many=True)
 
     class Meta:
         model = Project
         fields = [
             'id', 'name', 'description', 'department',
-            'manager', 'team_lead', 'members', 'documents',
+            'manager', 'manager_ids', 'team_lead', 'team_lead_ids',
+            'members', 'member_ids', 'documents',
             'start_date', 'end_date', 'is_active'
         ]
+
 
 class ProjectMemberUpdateSerializer(serializers.ModelSerializer):
     members = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), many=True)
