@@ -49,12 +49,37 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             "message": "Employee created successfully!",
             "employee": EmployeeSerializer(employee).data
         }, status=status.HTTP_201_CREATED)
+# class EmployeeProfileViewSet(viewsets.ModelViewSet):
+#     queryset = EmployeeProfile.objects.all().order_by('id')
+#     serializer_class = EmployeeProfileSerializer
+#     lookup_field = 'id'
+#     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
+#     http_method_names = ['get', 'post', 'put', 'patch']
+
+#     """code ensures the employee can view their own profile"""
+#     """HR, Team_lead, Project_manager can view all the profiles of employee"""
+#     def get_queryset(self):
+#         user = self.request.user  
+#         if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.ADMIN, Employee.PROJECT_MANAGER):
+#             return EmployeeProfile.objects.all().order_by('id')
+#         return EmployeeProfile.objects.filter(employee=user)
+    
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
     queryset = EmployeeProfile.objects.all().order_by('id')
     serializer_class = EmployeeProfileSerializer
     lookup_field = 'id'
-    permission_classes = [IsProjectManagerOrSuperUserOrHR]
     http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
+
+    def get_queryset(self):
+        user = self.request.user  
+
+        # HR, PM, Admin, Team Lead → all profiles
+        if has_role(user, Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD):
+            return EmployeeProfile.objects.all().order_by("id")
+
+        # Normal employee → only their own profile
+        return EmployeeProfile.objects.filter(employee__user=user)
 
 class JWTSocialLoginView(SocialLoginView):
     client_class = OAuth2Client
