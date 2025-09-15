@@ -16,7 +16,7 @@ schema_view = get_schema_view(
         title="Project Management API",
         default_version="v1",
         description="API documentation for Project Management",
-        contact=openapi.Contact(email="irish@example.com"),
+        contact=openapi.Contact(email="irishmjn@gmail.com"),
         license=openapi.License(name="MIT License"),
     ),
     public=True,
@@ -24,7 +24,6 @@ schema_view = get_schema_view(
 )
 def home(request):
     return HttpResponse("Welcome to Project Management API!")
-
 
 urlpatterns = [
     path("", home),

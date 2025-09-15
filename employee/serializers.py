@@ -196,8 +196,12 @@ class WorkinghourSerializer(serializers.ModelSerializer):
         read_only_fields = ["day_of_week"]
 
 class EmployeeScheduleSerializer(serializers.ModelSerializer):
+    employee_name = serializers.SerializerMethodField(read_only = True)
     class Meta:
         model = EmployeeSchedule
-        fields = "__all__"
-        read_only_fields = ['availability']
-        
+        fields = ['id', 'employee', 'employee_name', 'availability']
+        read_only_fields = ['id', 'employee_name', 'availability']
+    def get_employee_name(self, obj):
+        if obj.employee and obj.employee.user:
+            return f"{obj.employee.user.first_name} {obj.employee.user.last_name}"
+        return None
