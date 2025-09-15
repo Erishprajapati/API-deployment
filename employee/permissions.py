@@ -47,3 +47,17 @@ class IsNotAuthenticatedUser(BasePermission):
     """
     def has_permission(self, request, view):
         return not request.user or not request.user.is_authenticated
+    
+
+class IsSelfOrTeamLeadOrHROrPMOrADMIN(BasePermission):
+    """Allow access if logged-in employee is checking their own profile or higher ranked employee"""
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user  
+
+        # Higher roles always allowed
+        if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
+            return True
+
+        # Normal employee → only their own profile
+        return obj.employee.user == user
