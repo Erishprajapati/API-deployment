@@ -200,7 +200,7 @@ class EmployeeScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = EmployeeSchedule
         fields = ['id', 'employee', 'employee_name', 'availability']
-        read_only_fields = ['id', 'employee_name', 'availability']
+        read_only_fields = ['id', 'employee_name']
     def get_employee_name(self, obj):
         if obj.employee and obj.employee.user:
             return f"{obj.employee.user.first_name} {obj.employee.user.last_name}"
