@@ -19,7 +19,11 @@ class EmployeeProfileAdmin(admin.ModelAdmin):
 
 @admin.register(EmployeeStatus)
 class EmployeeStatusAdmin(admin.ModelAdmin):
-    list_display = ('id', 'is_active')
+    list_display = ('id', 'status_display')  
+
+    def status_display(self, obj):
+        return "Active" if obj.is_active else "Inactive"
+    status_display.short_description = 'Status'  
 
 # admin.site.register(EmployeeStatus)
 @admin.register(Leave)
