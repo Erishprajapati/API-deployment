@@ -7,7 +7,7 @@ from django.core.validators import MinValueValidator
 # Create your models here.
 
 class Project(Timestamp):
-    department = models.ForeignKey(Department, on_delete=models.CASCADE)
+    department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='projects')
     """
     limiting to project manager only gives access to project managers
     """
