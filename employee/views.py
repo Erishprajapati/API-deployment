@@ -13,7 +13,8 @@ from django.http import JsonResponse
 from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
 from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_framework.response import Response
-
+from projects.permissions import IsAssignedProjectOrHigher
+from projects.models import * 
 class EmployeeStatusViewSet(viewsets.ModelViewSet):
     queryset = EmployeeStatus.objects.all()
     serializer_class = EmployeeStatusSerializer
@@ -21,12 +22,24 @@ class EmployeeStatusViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'put', 'patch']
 
 class DepartmentViewSet(viewsets.ModelViewSet):
-    queryset = Department.objects.all().order_by('id')
     serializer_class = DepartmentSerializer
     lookup_field = 'id'
-    permission_classes = [IsHRorSuperUser]
+    permission_classes = [IsAssignedProjectOrHigher] 
     http_method_names = ['get', 'post', 'put', 'patch']
-    
+    queryset = Department.objects.all()
+
+    def get_queryset(self):
+        user_profile = self.request.user.employee_profile
+        user_role = user_profile.role
+
+        # Higher roles → all departments
+        if user_role in [user_profile.HR, user_profile.TEAM_LEAD, user_profile.PROJECT_MANAGER, user_profile.ADMIN]:
+            return Department.objects.all().order_by('id')
+
+        # Normal employees → only departments of projects they are assigned to
+        assigned_projects = Project.objects.filter(members=user_profile).distinct()
+        return Department.objects.filter(projects__in=assigned_projects).distinct().order_by('id')
+
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.all().order_by('id')
     serializer_class = EmployeeSerializer
@@ -72,7 +85,13 @@ class EmployeeProfileViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
 
     def get_queryset(self):
-        user = self.request.user  
+    # For Swagger schema generation
+        if getattr(self, 'swagger_fake_view', False):
+            return EmployeeProfile.objects.none()
+
+        user = self.request.user
+        if user.is_anonymous:
+            return EmployeeProfile.objects.none()
 
         # HR, PM, Admin, Team Lead → all profiles
         if has_role(user, Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD):
@@ -125,11 +144,19 @@ class EmployeeScheduleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
 
     def get_queryset(self):
+    # For Swagger schema generation (no user context available)
+        if getattr(self, "swagger_fake_view", False):
+            return EmployeeSchedule.objects.none()
+
         user = self.request.user  
+
+        # If user is not logged in → no data
+        if user.is_anonymous:
+            return EmployeeSchedule.objects.none()
 
         # HR, PM, Admin, Team Lead → all schedules
         if has_role(user, Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD):
-            return EmployeeProfile.objects.all().order_by("id")
+            return EmployeeSchedule.objects.all().order_by("id")
 
-        # Normal employee → only their own profile
-        return EmployeeProfile.objects.filter(employee__user=user)
+        # Normal employee → only their own schedule
+        return EmployeeSchedule.objects.filter(employee__user=user)
