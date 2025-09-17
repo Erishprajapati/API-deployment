@@ -36,24 +36,58 @@ class IsAssignedEmployeeOrReviewer(permissions.BasePermission):
 
 
 class IsAssignedProjectOrHigher(BasePermission):
+    """
+    HR, PM, TL, Admin → full access
+    Normal employees → read-only for departments of projects they are assigned to
+    """
+
     def has_permission(self, request, view):
+        # Allow anyone to read if GET/HEAD/OPTIONS
         if request.method in SAFE_METHODS:
             return True
-        user_role = request.user.employeeprofile.role
-        return user_role in ['HR', 'TEAM_LEAD', 'PROJECT_MANAGER', 'ADMIN']
+
+        user_profile = getattr(request.user, "employee_profile", None)
+        if not user_profile:
+            return False
+
+        # Higher roles → full access
+        return user_profile.role in [
+            Employee.HR,
+            Employee.TEAM_LEAD,
+            Employee.PROJECT_MANAGER,
+            Employee.ADMIN
+        ]
 
     def has_object_permission(self, request, view, obj):
-        user_profile = request.user.employeeprofile
-        user_role = user_profile.role
+        """
+        obj can be Department or Project.
+        Normal employees → only view if they are assigned to a project in this department.
+        """
+        user_profile = getattr(request.user, "employee_profile", None)
+        if not user_profile:
+            return False
 
-        # Higher roles always allowed
-        if user_role in ['HR', 'TEAM_LEAD', 'PROJECT_MANAGER', 'ADMIN']:
+        # Higher roles → full access
+        if user_profile.role in [
+            Employee.HR,
+            Employee.TEAM_LEAD,
+            Employee.PROJECT_MANAGER,
+            Employee.ADMIN
+        ]:
             return True
 
-        # Normal employee → only view assigned projects
+        # Normal employee → only view assigned projects/departments
         if request.method in SAFE_METHODS:
-            return user_profile in obj.members.all() \
-                    or user_profile == obj.manager \
-                    or user_profile == obj.team_lead
+            # If obj is a Department
+            if hasattr(obj, "projects"):
+                assigned_projects = obj.projects.filter(members=user_profile)
+                return assigned_projects.exists()
+            
+            # If obj is a Project
+            return (
+                user_profile in getattr(obj, "members", [])
+                or user_profile == getattr(obj, "manager", None)
+                or user_profile == getattr(obj, "team_lead", None)
+            )
 
         return False
