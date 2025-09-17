@@ -23,22 +23,29 @@ class EmployeeStatusViewSet(viewsets.ModelViewSet):
 
 class DepartmentViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentSerializer
-    lookup_field = 'id'
-    permission_classes = [IsAssignedProjectOrHigher] 
-    http_method_names = ['get', 'post', 'put', 'patch']
     queryset = Department.objects.all()
+    lookup_field = 'id'
+    permission_classes = [IsAuthenticated, IsAssignedProjectOrHigher]
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def get_queryset(self):
-        user_profile = self.request.user.employee_profile
-        user_role = user_profile.role
+        user_profile = getattr(self.request.user, "employee_profile", None)
+        if not user_profile:
+            return Department.objects.none()  # anonymous user sees nothing
 
         # Higher roles → all departments
-        if user_role in [user_profile.HR, user_profile.TEAM_LEAD, user_profile.PROJECT_MANAGER, user_profile.ADMIN]:
+        if user_profile.role in [
+            Employee.HR,
+            Employee.TEAM_LEAD,
+            Employee.PROJECT_MANAGER,
+            Employee.ADMIN
+        ]:
             return Department.objects.all().order_by('id')
 
         # Normal employees → only departments of projects they are assigned to
         assigned_projects = Project.objects.filter(members=user_profile).distinct()
         return Department.objects.filter(projects__in=assigned_projects).distinct().order_by('id')
+
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.all().order_by('id')
