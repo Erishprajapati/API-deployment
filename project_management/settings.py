@@ -193,6 +193,17 @@ ACCOUNT_AUTHENTICATION_METHOD = 'email'
 ACCOUNT_EMAIL_REQUIRED = True
 ACCOUNT_USERNAME_REQUIRED = False
 
+
+# # Authentication method → email only
+# ACCOUNT_LOGIN_METHODS = {"email"}
+
+# # Minimal signup fields (you already handle custom fields in SignupSerializer)
+# ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
+
+# # Optional: turn off username entirely
+# ACCOUNT_USER_MODEL_USERNAME_FIELD = None
+# ACCOUNT_USERNAME_REQUIRED = False  # (safe to keep for now, will be ignored in Django 5.2+)
+
 # Redirects (not used much in API-only flow)
 LOGIN_REDIRECT_URL = '/api/social-login-success/'
 LOGOUT_REDIRECT_URL = '/'
