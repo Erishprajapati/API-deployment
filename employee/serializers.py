@@ -170,7 +170,6 @@ class DepartmentNestedSerializer(serializers.ModelSerializer):
         model = Department
         fields = ["name", "description"]
 
-
 class EmployeeProfileSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
 
@@ -182,12 +181,23 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
             "citizenship",
             "contact_agreement",
         ]
-
 class LeaveSerializer(serializers.ModelSerializer):
     class Meta:
         model = Leave
         fields = "__all__"
-        read_only_fields = ["leave_reason"]
+        read_only_fields = ["leave_reason"]  # user cannot modify this directly
+
+    def validate(self, data):
+        today = timezone.now().date()
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if start_date and start_date < today:
+            raise serializers.ValidationError({"start_date": "Start date cannot be in the past."})
+
+        if end_date and start_date and end_date < start_date:
+            raise serializers.ValidationError({"end_date": "End date cannot be before start date."})
+        return data
 
 class WorkinghourSerializer(serializers.ModelSerializer):
     class Meta:
