@@ -200,13 +200,21 @@ class IsProjectAuthorized(permissions.BasePermission):
         return True
 
 class TaskCommentViewSet(viewsets.ModelViewSet):
-    queryset = TaskComment.objects.all().order_by('id')
     serializer_class = TaskCommentSerializer
-    # permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
-    def create(self,serializer):
-        serializer.saev(author = self.request.user)
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.employee.role in ["HR", "PROJECT_MANAGER", "ADMIN", "TEAM_LEAD"]:
+            return TaskComment.objects.all().order_by("id")
+
+        return TaskComment.objects.filter(task__assigned_to=user).order_by("id")
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
         
 class FolderViewSet(viewsets.ModelViewSet):
     queryset = Folder.objects.all().select_related("project", 'parent').annotate(
