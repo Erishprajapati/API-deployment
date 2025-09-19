@@ -15,7 +15,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import Project, ProjectDocuments
 from .serializers import *
 from employee.models import Employee
-from .permissions import *  
+from .permissions import *
 from django.db.models import Min
 from employee.permissions import *
 
@@ -26,7 +26,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
     )
     serializer_class = ProjectSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer]
+    permission_classes = [IsAuthenticated, IsAssignedProjectOrHigher]
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
@@ -198,7 +198,6 @@ class IsProjectAuthorized(permissions.BasePermission):
             return employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]
 
         return True
-
 class TaskCommentViewSet(viewsets.ModelViewSet):
     serializer_class = TaskCommentSerializer
     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
@@ -207,13 +206,23 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        if user.employee.role in ["HR", "PROJECT_MANAGER", "ADMIN", "TEAM_LEAD"]:
+        # Check if user has an Employee profile
+        if hasattr(user, 'employee_profile') and user.employee_profile.role in [
+            Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD
+        ]:
             return TaskComment.objects.all().order_by("id")
 
+        # Otherwise return only comments on tasks assigned to this user
         return TaskComment.objects.filter(task__assigned_to=user).order_by("id")
 
+
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        if not hasattr(self.request.user, 'employee_profile'):
+            raise serializers.ValidationError("This user is not linked to an Employee profile.")
+
+        employee = self.request.user.employee_profile
+        serializer.save(author=employee, commented_by=employee)
+
 
         
 class FolderViewSet(viewsets.ModelViewSet):
