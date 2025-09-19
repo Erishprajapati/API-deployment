@@ -107,10 +107,18 @@ class ProjectEmployeeNestedSerializer(serializers.ModelSerializer):
         }
     
 class TaskCommentSerializer(serializers.ModelSerializer):
-    #TODO : Error in here full_name
-    mentions = serializers.SlugRelatedField(many = True, slug_field = "user.username", queryset = Employee.objects.all(), required = False)
-    author = serializers.ReadOnlyField(source = "author.username")
-    commented_by = serializers.SlugRelatedField( slug_field = "user.username", read_only = True )
+    # mentions: get username of related users
+    mentions = serializers.PrimaryKeyRelatedField(
+    many=True,
+    queryset=Employee.objects.all(),
+    required=False
+    )
+
+    # author: read-only, get username via related User
+    author = serializers.ReadOnlyField(source="author.user.username")
+    
+    # commented_by: read-only via Employee → User
+    commented_by = serializers.ReadOnlyField(source="commented_by.user.username")
 
     class Meta:
         model = TaskComment

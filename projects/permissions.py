@@ -47,37 +47,40 @@ class IsAssignedProjectOrHigher(BasePermission):
             Employee.PROJECT_MANAGER,
             Employee.ADMIN
         ]
-
     def has_object_permission(self, request, view, obj):
         """
-        obj can be Department or Project.
-        Normal employees → only view if they are assigned to a project in this department.
+        obj can be a Project or Department
         """
         user_profile = getattr(request.user, "employee_profile", None)
         if not user_profile:
             return False
 
         # Higher roles → full access
-        if user_profile.role in [
-            Employee.HR,
-            Employee.TEAM_LEAD,
-            Employee.PROJECT_MANAGER,
-            Employee.ADMIN
-        ]:
+        if user_profile.role in [Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN]:
             return True
 
-        # Normal employee → only view assigned projects/departments
+        # Normal employee → only view assigned projects
         if request.method in SAFE_METHODS:
-            # If obj is a Department
-            if hasattr(obj, "projects"):
+            if hasattr(obj, "members"):  # obj is Project
+                return user_profile in obj.members.all()
+            if hasattr(obj, "projects"):  # obj is Department
+                # only if the employee is assigned to a project in this department
                 assigned_projects = obj.projects.filter(members=user_profile)
                 return assigned_projects.exists()
-            
-            # If obj is a Project
-            return (
-                user_profile in getattr(obj, "members", [])
-                or user_profile == getattr(obj, "manager", None)
-                or user_profile == getattr(obj, "team_lead", None)
-            )
-
         return False
+
+
+
+# class IsProjectAuthorized(permissions.BasePermission):
+#     def has_permission(self, request, view):
+#         if not request.user.is_authenticated:   
+#             return False
+
+#         employee = getattr(request.user, "employee_profile", None)
+#         if not employee:
+#             return False
+
+#         if view.action == "create":
+#             return employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]
+
+#         return True
