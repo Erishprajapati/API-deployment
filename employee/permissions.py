@@ -48,28 +48,30 @@ class IsNotAuthenticatedUser(BasePermission):
     def has_permission(self, request, view):
         return not request.user or not request.user.is_authenticated
     
-
 class IsSelfOrTeamLeadOrHROrPMOrADMIN(BasePermission):
     """Allow access if higher ranked employee, assigned employee, or comment author"""
 
     def has_object_permission(self, request, view, obj):
-        user = request.user  
+        user = request.user
+        employee = getattr(user, "employee_profile", None)
 
-        # Higher roles always allowed
+        if employee is None:
+            return False
+
+        # Higher roles → full access
         if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
             return True
 
-        # If object is TaskComment
-        if hasattr(obj, "task"):
-            # Assigned employee can access
-            if obj.task.assigned_to == user:
-                return True
-            # Comment author can access
-            if obj.author == user:
-                return True
+        # Assigned employee can access
+        if hasattr(obj, "task") and obj.task.assigned_to == employee:
+            return True
 
-        # If object is EmployeeProfile (your old case)
-        if hasattr(obj, "employee"):
-            return obj.employee.user == user
+        # Comment author can access
+        if hasattr(obj, "author") and obj.author == employee:
+            return True
+
+        # EmployeeProfile object check
+        if hasattr(obj, "employee") and obj.employee == employee:
+            return True
 
         return False
