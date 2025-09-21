@@ -205,15 +205,18 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        employee = getattr(user, "employee_profile", None)
 
-        # Check if user has an Employee profile
-        if hasattr(user, 'employee_profile') and user.employee_profile.role in [
-            Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD
-        ]:
+        if employee is None:
+            return TaskComment.objects.none()  # No Employee profile → no comments
+
+        # Higher roles can see all comments
+        if employee.role in [Employee.HR, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.TEAM_LEAD]:
             return TaskComment.objects.all().order_by("id")
 
-        # Otherwise return only comments on tasks assigned to this user
-        return TaskComment.objects.filter(task__assigned_to=user).order_by("id")
+        # Normal assigned employees → only comments on their tasks
+        return TaskComment.objects.filter(task__assigned_to=employee).order_by("id")
+
 
 
     def perform_create(self, serializer):
