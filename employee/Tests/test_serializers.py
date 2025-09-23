@@ -60,4 +60,6 @@ class EmployeeSerializerTest(TestCase):
         }
         serializer = EmployeeSerializer(data=emp_data)
         with self.assertRaises(ValidationError):
-            serializer.is_valid(raise_exception=True)
+            serializer.is_valid(raise_exception=True) 
+
+"""this testcase are passed"""

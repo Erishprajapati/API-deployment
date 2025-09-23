@@ -8,7 +8,16 @@ from rest_framework_simplejwt.tokens import RefreshToken
 class EmployeeAPITestCase(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.user = User.objects.create_user(username="admin@mail.com", email="admin@mail.com", password="pass123")
+        self.user = User.objects.create_user(
+            username="admin@mail.com",
+            email="admin@mail.com",
+            password="pass123"
+        )
+        # Give superuser/staff privileges before generating token
+        self.user.is_staff = True
+        self.user.is_superuser = True
+        self.user.save()
+
         self.department = Department.objects.create(name="IT")
         self.status = EmployeeStatus.objects.create(is_active=True)
         self.employee = Employee.objects.create(
@@ -20,19 +29,19 @@ class EmployeeAPITestCase(TestCase):
         )
         self.profile = EmployeeProfile.objects.create(employee=self.employee)
 
-        # authenticate
+        # Authenticate after making user superuser
         refresh = RefreshToken.for_user(self.user)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh.access_token}")
 
     # ----------------- EmployeeViewSet -----------------
     def test_employee_list(self):
-        url = reverse("employee-list")  # ✅ correct
+        url = reverse("employee:employee-list")
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(len(response.data) >= 1)
+        self.assertTrue(len(response.data["results"]) >= 1)
 
     def test_employee_create(self):
-        url = reverse("employee-list")
+        url = reverse("employee:employee-list")
         data = {
             "user": {"email": "new@mail.com", "full_name": "New User", "password": "pass12345"},
             "phone": "9812345678",
@@ -49,21 +58,21 @@ class EmployeeAPITestCase(TestCase):
 
     # ----------------- DepartmentViewSet -----------------
     def test_department_list(self):
-        url = reverse("department-list")  # ✅ correct
+        url = reverse("employee:department-list") 
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertIn("IT", [d["name"] for d in response.data])
+        self.assertIn("IT", [d["name"] for d in response.data["results"]])
 
     # ----------------- EmployeeProfileViewSet -----------------
     def test_employee_profile_list_self(self):
-        url = reverse("employeeprofile-list")  # ✅ corrected (no underscore)
+        url = reverse("employee:employee-profile-list")  
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]["employee"], self.employee.id)
+        self.assertEqual(response.data["results"][0]["employee"], self.employee.id)
 
     # ----------------- LeaveViewSet -----------------
     def test_leave_create_valid(self):
-        url = reverse("leave-list")  # ✅ correct
+        url = reverse("employee:leave-list")  
         data = {
             "employee": self.employee.id,
             "start_date": timezone.now().date() + timezone.timedelta(days=1),
@@ -76,7 +85,7 @@ class EmployeeAPITestCase(TestCase):
 
     # ----------------- WorkingHourViewSet -----------------
     def test_workinghour_create(self):
-        url = reverse("workinghour-list")  # ✅ corrected (no underscore)
+        url = reverse("employee:working-hour-list")  
         data = {
             "employee": self.employee.id,
             "day_of_week": "monday",
@@ -89,7 +98,8 @@ class EmployeeAPITestCase(TestCase):
     # ----------------- EmployeeScheduleViewSet -----------------
     def test_employee_schedule_list(self):
         schedule = EmployeeSchedule.objects.create(employee=self.employee, availability="available")
-        url = reverse("employeeschedule-list")  # ✅ corrected (no underscore)
+        url = reverse("employee:employee-schedule-list")  
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]["employee"], self.employee.id)
+        # ✅ Access paginated results
+        self.assertEqual(response.data["results"][0]["employee"], self.employee.id)

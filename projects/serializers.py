@@ -124,14 +124,35 @@ class TaskCommentSerializer(serializers.ModelSerializer):
         model = TaskComment
         fields = ["id", "task", "author", "description", "mentions", "commented_at", "commented_by"]
 
+# class FolderSerializer(serializers.ModelSerializer):
+#     child_count = serializers.IntegerField(read_only = True) #ensures the count are only viewable not editable
+#     lists_count = serializers.IntegerField(read_only = True)
+    
+#     class Meta:
+#         model = Folder
+#         fields = "__all__"
+#         read_only_fields = ["path", "created_at", "updated_at", "child_count", "lists_count"]
+#         """to count the numbers"""
+#     def get_child_count(self, obj):
+#         return obj.child.count()
+
+#     def get_lists_count(self, obj):
+#         return obj.list_set.count()  # or
+
 class FolderSerializer(serializers.ModelSerializer):
-    child_count = serializers.IntegerField(read_only = True) #ensures the count are only viewable not editable
-    lists_count = serializers.IntegerField(read_only = True)
+    child_count = serializers.SerializerMethodField()
+    lists_count = serializers.SerializerMethodField()
     
     class Meta:
         model = Folder
         fields = "__all__"
         read_only_fields = ["path", "created_at", "updated_at", "child_count", "lists_count"]
+
+    def get_child_count(self, obj):
+        return obj.child.count()
+
+    def get_lists_count(self, obj):
+        return obj.lists.count()  # use the related_name of List model
 
 class ListSerializer(serializers.ModelSerializer):
     class Meta:
