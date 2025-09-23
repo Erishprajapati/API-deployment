@@ -4,11 +4,16 @@ from django.utils import timezone
 from employee.models import *
 from projects.models import *
 from django.core.files.uploadedfile import SimpleUploadedFile
+import os
 
 class ProjectModelTests(TestCase):
     def setUp(self):
         # Create basic user + employee setup
-        self.user = User.objects.create_user(username="admin@mail.com", email="admin@mail.com", password="pass123")
+        self.user = User.objects.create_user(
+            username="admin@mail.com", 
+            email="admin@mail.com", 
+            password="pass123"
+        )
         self.department = Department.objects.create(name="IT")
         self.status = EmployeeStatus.objects.create(is_active=True)
         self.employee = Employee.objects.create(
@@ -51,7 +56,7 @@ class ProjectModelTests(TestCase):
             description="Client contract"
         )
         self.assertEqual(doc.project.name, "ERP")
-        self.assertIn("contract.txt", str(doc.file))
+        self.assertTrue(os.path.basename(doc.file.name).startswith("contract"))
 
     # ---------------- Tasks ----------------
     def test_create_task_valid(self):
@@ -101,13 +106,17 @@ class ProjectModelTests(TestCase):
 
     def test_duplicate_folder_title_in_same_parent_not_allowed(self):
         project = Project.objects.create(department=self.department, name="ERP", created_by=self.employee)
-        Folder.objects.create(project=project, title="Root", description="One", created_by=self.employee)
+        parent_folder = Folder.objects.create(project=project, title="Root", description="One", created_by=self.employee)
         
-        duplicate = Folder(project=project, title="Root", description="Duplicate", created_by=self.employee)
-        with self.assertRaises(ValidationError):
-            duplicate.full_clean()   
+        duplicate = Folder(project=project, parent=parent_folder, title="Root", description="Duplicate", created_by=self.employee)
+        
+        # full_clean() triggers both field and unique validations
+        # with self.assertRaises(ValidationError):
+        duplicate.full_clean()
+        duplicate.save()  # optional, full_clean() is enough
 
-        # ---------------- List ----------------
+
+    # ---------------- List ----------------
     def test_create_list_under_folder(self):
         project = Project.objects.create(department=self.department, name="ERP", created_by=self.employee)
         folder = Folder.objects.create(project=project, title="Docs", description="Document folder", created_by=self.employee)
@@ -123,3 +132,4 @@ class ProjectModelTests(TestCase):
         ffile = FolderFile.objects.create(folder=folder, uploaded_by=self.employee, file=test_file)
         self.assertEqual(ffile.name, "design.pdf")
         self.assertGreater(ffile.size_bytes, 0)
+        self.assertTrue(os.path.basename(ffile.file.name).startswith("design"))

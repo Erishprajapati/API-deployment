@@ -53,7 +53,7 @@ INSTALLED_APPS = [
     'allauth',
     'allauth.account',
     'allauth.socialaccount',
-    "allauth.socialaccount.providers.google"
+    "allauth.socialaccount.providers.google" #this is needed for google login
 ]
 
 MIDDLEWARE = [
@@ -174,7 +174,7 @@ SIMPLE_JWT = {
 
 
 # Required by allauth
-SITE_ID = 1
+SITE_ID = 2
 
 
 # Allauth configuration
