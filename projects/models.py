@@ -20,7 +20,7 @@ class Project(Timestamp):
     end_date = models.DateTimeField(blank=True, null=True)
     created_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null = True, related_name="created_projects")
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
@@ -39,7 +39,7 @@ class ProjectDocuments(models.Model):
     file = models.FileField(upload_to="project/documents") #TODO: can limit the size of documents while uploading
     description = models.TextField()
     uploaded_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.project.name
@@ -108,13 +108,13 @@ class Folder(models.Model):
     parent = models.ForeignKey("self", null = True, blank = True, on_delete = models.CASCADE, related_name="child")
     title = models.CharField(max_length=200)
     description = models.TextField()
-    order = models.PositiveIntegerField(default = 0, validators=[MinValueValidator])
+    order = models.PositiveIntegerField(default=0, validators=[MinValueValidator(0)])
     is_archived = models.BooleanField(default = False)
     is_deleted = models.BooleanField(default=False)
     path = models.TextField(blank = True, editable= False)
     created_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null = True, related_name="created_folders")
-    created_at = models. DateTimeField(auto_now=True)
-    updated_at = models.DateTimeField(auto_now_add= True)
+    created_at = models. DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now= True)
     
     class Meta:
         unique_together = (("project", "parent", "title"),)
@@ -129,6 +129,17 @@ class Folder(models.Model):
     saves the folder normally and collects the name from parent class and join it with 
     parent folder
     """
+    # def save(self, *args, **kwargs):
+    #     super().save(*args, **kwargs)
+    #     parts = []
+    #     node = self
+    #     while node:
+    #         parts.append(node.title)
+    #         node = node.parent
+
+    #     new_path = '/'.join(reversed(parts))
+    #     if self.path != new_path:
+    #         Folder.objects.filter(pk = self.pk).update(path = new_path) #this updates the path field only
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         parts = []
@@ -136,10 +147,10 @@ class Folder(models.Model):
         while node:
             parts.append(node.title)
             node = node.parent
-
         new_path = '/'.join(reversed(parts))
         if self.path != new_path:
-            Folder.objects.filter(pk = self.pk).update(path = new_path) #this updates the path field only
+            Folder.objects.filter(pk=self.pk).update(path=new_path)
+
 
 
     def __str__(self):

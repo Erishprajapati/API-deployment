@@ -111,9 +111,9 @@ class ProjectModelTests(TestCase):
         duplicate = Folder(project=project, parent=parent_folder, title="Root", description="Duplicate", created_by=self.employee)
         
         # full_clean() triggers both field and unique validations
-        # with self.assertRaises(ValidationError):
-        duplicate.full_clean()
-        duplicate.save()  # optional, full_clean() is enough
+        with self.assertRaises(ValidationError):
+            duplicate.full_clean()
+            duplicate.save()  # optional, full_clean() is enough
 
 
     # ---------------- List ----------------
