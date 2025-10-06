@@ -112,3 +112,5 @@ class EmployeeScheduleModelTest(TestCase):
         self.schedule.update_availability()
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.availability, "on_leave")
+
+        """this testcase are passed"""
