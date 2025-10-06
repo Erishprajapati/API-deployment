@@ -142,6 +142,8 @@ class TaskCommentSerializer(serializers.ModelSerializer):
 class FolderSerializer(serializers.ModelSerializer):
     child_count = serializers.SerializerMethodField()
     lists_count = serializers.SerializerMethodField()
+    read_only_fields = ["uploaded_by", "created_at"]
+
     
     class Meta:
         model = Folder
