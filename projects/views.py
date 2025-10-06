@@ -255,21 +255,41 @@ class FolderViewSet(viewsets.ModelViewSet):
             qs = qs.filter(name__icontains=search)
 
         return qs.order_by('order', 'id')
+    @action(detail=True, methods=["post"], permission_classes=[IsProjectManagerOrSuperUserOrHR])
+    def move(self, request, pk=None):
+        file = self.get_object()
+        new_folder_id = request.data.get("new_folder")
+        if not new_folder_id:
+            return Response({"error": "new_folder is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            new_folder = Folder.objects.get(pk=new_folder_id, project=file.folder.project)
+        except Folder.DoesNotExist:
+            return Response({"error": "Invalid folder"}, status=status.HTTP_400_BAD_REQUEST)
+
+        file.folder = new_folder
+        file.save()
+        return Response(self.get_serializer(file).data, status=status.HTTP_200_OK)
 
     """
     method to create the folder
     not override in http_method_names
     """
-    def perform_create(self, serializer):
-        employee = getattr(self.request.user, 'employee_profile', None)
-        if not employee:
-            raise PermissionDenied("You are not an employee and cannot create folders.")
+    # def perform_create(self, serializer):
+    #     employee = getattr(self.request.user, 'employee_profile', None)
+    #     if not employee:
+    #         raise PermissionDenied("You are not an employee and cannot create folders.")
         
-        if employee.role not in [Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.HR]:
-            raise PermissionDenied("You are not allowed to create folders.")
+    #     if employee.role not in [Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.HR]:
+    #         raise PermissionDenied("You are not allowed to create folders.")
     
-        serializer.save(created_by=employee)
-        
+    #     serializer.save(created_by=employee)
+    def perform_create(self, serializer):
+        employee = getattr(self.request.user, "employee_profile", None)
+        if not employee:
+            raise PermissionDenied("Only employees can upload files.")
+        serializer.save(uploaded_by=employee)
+
     def update(self, request, *args, **kwargs):
         employee = getattr(request.user, 'employee_profile', None)
         if not employee or employee.role not in [Employee.PROJECT_MANAGER, Employee.ADMIN]:
