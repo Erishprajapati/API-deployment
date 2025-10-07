@@ -18,6 +18,7 @@ from employee.models import Employee
 from .permissions import *
 from django.db.models import Min
 from employee.permissions import *
+from .tasks import *
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -126,11 +127,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = ProjectDocumentSerializer(documents, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+# class TaskViewSet(viewsets.ModelViewSet):
+#     queryset = Tasks.objects.all()
+#     serializer_class = TaskSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR ]
+#     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+#     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
+#     ordering_fields = ['title', 'status', 'priority', 'due_date']
+#     ordering = ['title']
+#     filterset_fields = ['status', 'priority', 'assigned_to', 'project']
+
+#     def get_queryset(self):
+#         user = self.request.user
+#         if not user.is_authenticated:
+#             return Tasks.objects.none()
+
+#         employee = getattr(user, "employee_profile", None)
+#         if not employee:
+#             return Tasks.objects.none()
+#         # Base queryset
+#         queryset = Tasks.objects.all()
+
+#         # Apply nested filter if project_pk exists
+#         project_id = self.kwargs.get('project_pk')  # Provided by nested router
+#         if project_id:
+#             queryset = queryset.filter(project_id=project_id)
+
+#         # RBAC: HR / ADMIN / PM / TEAM_LEAD -> all tasks
+#         if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+#             return queryset
+
+#         # Regular employee -> only their tasks
+#         return queryset.filter(assigned_to=employee)
+    
+#     def perform_create(self, serializer):
+#         employee = getattr(self.request.user, "employee_profile", None)
+#         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
+#         serializer.save(created_by=employee, project=project)
+
+
+#     def perform_update(self, serializer):
+#         """Handle task review workflow"""
+#         task = serializer.instance
+#         status_value = self.request.data.get("status")
+
+#         employee = getattr(self.request.user, "employee_profile", None)
+
+#         # Assigned employee submits for review
+#         if status_value == "review" and employee == task.assigned_to:
+#             task.status = "review"
+
+#         # PM / TL / HR / Admin approves and marks as completed
+#         elif status_value == "completed" and employee and employee.role in ["PROJECT_MANAGER", "TEAM_LEAD", "HR", "ADMIN"]:
+#             task.status = "completed"
+#             task.reviewed_by = employee
+
+#         task.save()
+#         serializer.save()
+
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Tasks.objects.all()
     serializer_class = TaskSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR ]
+    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
     ordering_fields = ['title', 'status', 'priority', 'due_date']
@@ -145,45 +205,51 @@ class TaskViewSet(viewsets.ModelViewSet):
         employee = getattr(user, "employee_profile", None)
         if not employee:
             return Tasks.objects.none()
-        # Base queryset
-        queryset = Tasks.objects.all()
 
-        # Apply nested filter if project_pk exists
-        project_id = self.kwargs.get('project_pk')  # Provided by nested router
+        queryset = Tasks.objects.all()
+        project_id = self.kwargs.get('project_pk')
+
         if project_id:
             queryset = queryset.filter(project_id=project_id)
 
-        # RBAC: HR / ADMIN / PM / TEAM_LEAD -> all tasks
         if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
             return queryset
 
-        # Regular employee -> only their tasks
         return queryset.filter(assigned_to=employee)
     
     def perform_create(self, serializer):
+        """
+        Save task and trigger Celery async job
+        """
         employee = getattr(self.request.user, "employee_profile", None)
         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
-        serializer.save(created_by=employee, project=project)
+        task = serializer.save(created_by=employee, project=project)
 
+        # Celery Task (asynchronous)
+        from .tasks import send_task_created_email
+        send_task_created_email.delay(task.id)
 
     def perform_update(self, serializer):
         """Handle task review workflow"""
         task = serializer.instance
         status_value = self.request.data.get("status")
-
         employee = getattr(self.request.user, "employee_profile", None)
 
-        # Assigned employee submits for review
         if status_value == "review" and employee == task.assigned_to:
             task.status = "review"
-
-        # PM / TL / HR / Admin approves and marks as completed
         elif status_value == "completed" and employee and employee.role in ["PROJECT_MANAGER", "TEAM_LEAD", "HR", "ADMIN"]:
             task.status = "completed"
             task.reviewed_by = employee
 
         task.save()
         serializer.save()
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsProjectManagerOrSuperUserOrHR])
+    def trigger_overdue_check(self, request):
+        """Manually trigger overdue task check"""
+        check_overdue_tasks.delay()
+        return Response({"message": "Overdue check triggered"}, status=200)
+
 
 class IsProjectAuthorized(permissions.BasePermission):
     def has_permission(self, request, view):
