@@ -71,22 +71,51 @@ class ProjectViewSet(viewsets.ModelViewSet):
             serializer.save(created_by=employee, manager=employee)
         else:
             serializer.save(created_by=employee)
+        project = serializer.save(
+        created_by=employee,
+        manager=employee if role == Employee.PROJECT_MANAGER else None
+    )
+        subject = f"New Project Created: {project.name}"
+        message = f"Hello {employee.user.first_name}, your project '{project.name}' has been created successfully."
+        send_assignment_email.delay(subject, message, employee.user.email)
 
+    # @action(detail=True, methods=['post'])
+    # def assign_members(self, request, pk=None):
+    #     """
+    #     Assign or update project members.
+    #     """
+    #     project = self.get_object()
+    #     serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
+    #     serializer.is_valid(raise_exception=True)
+    #     serializer.save()
+    #     return Response({"message": "Members updated successfully"}, status=status.HTTP_200_OK)
     @action(detail=True, methods=['post'])
     def assign_members(self, request, pk=None):
-        """
-        Assign or update project members.
-        """
         project = self.get_object()
+        old_members = set(project.members.all())
         serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response({"message": "Members updated successfully"}, status=status.HTTP_200_OK)
+        new_members = set(project.members.all()) - old_members
+        for member in new_members:
+            subject = f"Added to Project: {project.name}"
+            message = (
+                f"Hi {member.user.first_name},\n\n"
+                f"You have been added to the project '{project.name}'.\n"
+                f"Project Description: {project.description}\n\n"
+                "Best,\nProject Management System"
+            )
+            send_assignment_email.delay(subject, message, member.user.email)
+
+        return Response(
+            {"message": "Members updated successfully and new members notified."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['post'])
     def assign_manager(self, request, pk=None):
         """
-        Assign a project manager (for HR/Admin only).
+        Assign a project manager (for HR/Admin only) and send email notification.
         """
         employee = getattr(request.user, "employee_profile", None)
         if not employee or employee.role not in [Employee.HR, Employee.ADMIN]:
@@ -101,10 +130,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
             manager = Employee.objects.get(id=manager_id, role=Employee.PROJECT_MANAGER)
         except Employee.DoesNotExist:
             return Response({"error": "Invalid manager"}, status=status.HTTP_400_BAD_REQUEST)
-
         project.manager = manager
         project.save()
-        return Response({"message": "Manager assigned successfully"}, status=status.HTTP_200_OK)
+        subject = f"You've been assigned as Project Manager for '{project.name}'"
+        message = (
+            f"Hi {manager.user.first_name},\n\n"
+            f"You have been assigned as the Project Manager for the project '{project.name}'.\n"
+            f"Description: {project.description}\n\n"
+            f"Please log in to the system to view the full project details.\n\n"
+            f"Best Regards,\nProject Management System"
+        )
+        send_assignment_email.delay(subject, message, manager.user.email)
+
+        return Response(
+            {"message": f"Manager {manager.user.first_name} assigned and notified via email."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['post'])
     def upload_document(self, request, pk=None):

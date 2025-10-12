@@ -3,6 +3,7 @@ from django.core.mail import send_mail
 from django.utils import timezone
 from .models import Tasks, Project
 from employee.models import Employee
+from django.conf import settings
 
 @shared_task
 def send_task_created_email(task_id):
@@ -78,3 +79,22 @@ def check_overdue_tasks():
             print(f"⚠️ Overdue email sent for task {task.title} to {task.assigned_to.user.email}")
 
     print(f"⚠️ {overdue_tasks.count()} task(s) marked as overdue.")
+
+# @shared_task
+# def send_assignment_email(subject, message, recipient_email):
+#     send_mail(
+#         subject,
+#         message,
+#         settings.DEFAULT_FROM_EMAIL,
+#         [recipient_email],
+#         fail_silently=False,
+#     )
+@shared_task
+def send_assignment_email(subject, message, recipient_email):
+    send_mail(
+        subject,
+        message,
+        'no-reply@projectsystem.com',  # from email
+        [recipient_email],
+        fail_silently=False,
+    )
