@@ -18,6 +18,7 @@ from employee.models import Employee
 from .permissions import *
 from django.db.models import Min
 from employee.permissions import *
+from .tasks import *
 
 
 class ProjectViewSet(viewsets.ModelViewSet):
@@ -70,22 +71,51 @@ class ProjectViewSet(viewsets.ModelViewSet):
             serializer.save(created_by=employee, manager=employee)
         else:
             serializer.save(created_by=employee)
+        project = serializer.save(
+        created_by=employee,
+        manager=employee if role == Employee.PROJECT_MANAGER else None
+    )
+        subject = f"New Project Created: {project.name}"
+        message = f"Hello {employee.user.first_name}, your project '{project.name}' has been created successfully."
+        send_assignment_email.delay(subject, message, employee.user.email)
 
+    # @action(detail=True, methods=['post'])
+    # def assign_members(self, request, pk=None):
+    #     """
+    #     Assign or update project members.
+    #     """
+    #     project = self.get_object()
+    #     serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
+    #     serializer.is_valid(raise_exception=True)
+    #     serializer.save()
+    #     return Response({"message": "Members updated successfully"}, status=status.HTTP_200_OK)
     @action(detail=True, methods=['post'])
     def assign_members(self, request, pk=None):
-        """
-        Assign or update project members.
-        """
         project = self.get_object()
+        old_members = set(project.members.all())
         serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response({"message": "Members updated successfully"}, status=status.HTTP_200_OK)
+        new_members = set(project.members.all()) - old_members
+        for member in new_members:
+            subject = f"Added to Project: {project.name}"
+            message = (
+                f"Hi {member.user.first_name},\n\n"
+                f"You have been added to the project '{project.name}'.\n"
+                f"Project Description: {project.description}\n\n"
+                "Best,\nProject Management System"
+            )
+            send_assignment_email.delay(subject, message, member.user.email)
+
+        return Response(
+            {"message": "Members updated successfully and new members notified."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['post'])
     def assign_manager(self, request, pk=None):
         """
-        Assign a project manager (for HR/Admin only).
+        Assign a project manager (for HR/Admin only) and send email notification.
         """
         employee = getattr(request.user, "employee_profile", None)
         if not employee or employee.role not in [Employee.HR, Employee.ADMIN]:
@@ -100,10 +130,22 @@ class ProjectViewSet(viewsets.ModelViewSet):
             manager = Employee.objects.get(id=manager_id, role=Employee.PROJECT_MANAGER)
         except Employee.DoesNotExist:
             return Response({"error": "Invalid manager"}, status=status.HTTP_400_BAD_REQUEST)
-
         project.manager = manager
         project.save()
-        return Response({"message": "Manager assigned successfully"}, status=status.HTTP_200_OK)
+        subject = f"You've been assigned as Project Manager for '{project.name}'"
+        message = (
+            f"Hi {manager.user.first_name},\n\n"
+            f"You have been assigned as the Project Manager for the project '{project.name}'.\n"
+            f"Description: {project.description}\n\n"
+            f"Please log in to the system to view the full project details.\n\n"
+            f"Best Regards,\nProject Management System"
+        )
+        send_assignment_email.delay(subject, message, manager.user.email)
+
+        return Response(
+            {"message": f"Manager {manager.user.first_name} assigned and notified via email."},
+            status=status.HTTP_200_OK
+        )
 
     @action(detail=True, methods=['post'])
     def upload_document(self, request, pk=None):
@@ -126,11 +168,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
         serializer = ProjectDocumentSerializer(documents, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+# class TaskViewSet(viewsets.ModelViewSet):
+#     queryset = Tasks.objects.all()
+#     serializer_class = TaskSerializer
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR ]
+#     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+#     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
+#     ordering_fields = ['title', 'status', 'priority', 'due_date']
+#     ordering = ['title']
+#     filterset_fields = ['status', 'priority', 'assigned_to', 'project']
+
+#     def get_queryset(self):
+#         user = self.request.user
+#         if not user.is_authenticated:
+#             return Tasks.objects.none()
+
+#         employee = getattr(user, "employee_profile", None)
+#         if not employee:
+#             return Tasks.objects.none()
+#         # Base queryset
+#         queryset = Tasks.objects.all()
+
+#         # Apply nested filter if project_pk exists
+#         project_id = self.kwargs.get('project_pk')  # Provided by nested router
+#         if project_id:
+#             queryset = queryset.filter(project_id=project_id)
+
+#         # RBAC: HR / ADMIN / PM / TEAM_LEAD -> all tasks
+#         if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+#             return queryset
+
+#         # Regular employee -> only their tasks
+#         return queryset.filter(assigned_to=employee)
+    
+#     def perform_create(self, serializer):
+#         employee = getattr(self.request.user, "employee_profile", None)
+#         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
+#         serializer.save(created_by=employee, project=project)
+
+
+#     def perform_update(self, serializer):
+#         """Handle task review workflow"""
+#         task = serializer.instance
+#         status_value = self.request.data.get("status")
+
+#         employee = getattr(self.request.user, "employee_profile", None)
+
+#         # Assigned employee submits for review
+#         if status_value == "review" and employee == task.assigned_to:
+#             task.status = "review"
+
+#         # PM / TL / HR / Admin approves and marks as completed
+#         elif status_value == "completed" and employee and employee.role in ["PROJECT_MANAGER", "TEAM_LEAD", "HR", "ADMIN"]:
+#             task.status = "completed"
+#             task.reviewed_by = employee
+
+#         task.save()
+#         serializer.save()
+
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Tasks.objects.all()
     serializer_class = TaskSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR ]
+    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
     ordering_fields = ['title', 'status', 'priority', 'due_date']
@@ -145,45 +246,51 @@ class TaskViewSet(viewsets.ModelViewSet):
         employee = getattr(user, "employee_profile", None)
         if not employee:
             return Tasks.objects.none()
-        # Base queryset
-        queryset = Tasks.objects.all()
 
-        # Apply nested filter if project_pk exists
-        project_id = self.kwargs.get('project_pk')  # Provided by nested router
+        queryset = Tasks.objects.all()
+        project_id = self.kwargs.get('project_pk')
+
         if project_id:
             queryset = queryset.filter(project_id=project_id)
 
-        # RBAC: HR / ADMIN / PM / TEAM_LEAD -> all tasks
         if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
             return queryset
 
-        # Regular employee -> only their tasks
         return queryset.filter(assigned_to=employee)
     
     def perform_create(self, serializer):
+        """
+        Save task and trigger Celery async job
+        """
         employee = getattr(self.request.user, "employee_profile", None)
         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
-        serializer.save(created_by=employee, project=project)
+        task = serializer.save(created_by=employee, project=project)
 
+        # Celery Task (asynchronous)
+        from .tasks import send_task_created_email
+        send_task_created_email.delay(task.id)
 
     def perform_update(self, serializer):
         """Handle task review workflow"""
         task = serializer.instance
         status_value = self.request.data.get("status")
-
         employee = getattr(self.request.user, "employee_profile", None)
 
-        # Assigned employee submits for review
         if status_value == "review" and employee == task.assigned_to:
             task.status = "review"
-
-        # PM / TL / HR / Admin approves and marks as completed
         elif status_value == "completed" and employee and employee.role in ["PROJECT_MANAGER", "TEAM_LEAD", "HR", "ADMIN"]:
             task.status = "completed"
             task.reviewed_by = employee
 
         task.save()
         serializer.save()
+    
+    @action(detail=False, methods=['post'], permission_classes=[IsProjectManagerOrSuperUserOrHR])
+    def trigger_overdue_check(self, request):
+        """Manually trigger overdue task check"""
+        check_overdue_tasks.delay()
+        return Response({"message": "Overdue check triggered"}, status=200)
+
 
 class IsProjectAuthorized(permissions.BasePermission):
     def has_permission(self, request, view):
