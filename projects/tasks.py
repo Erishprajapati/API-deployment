@@ -24,11 +24,11 @@ def send_task_created_email(task_id):
             print(f"⚠️ Task {task.title} has no assigned employee with an email.")
     except Tasks.DoesNotExist:
         print(f"❌ Task with ID {task_id} not found.")
-
 @shared_task
 def send_project_created_email(project_id):
     """
     Send email notification to PM/TL/HR when a project is created.
+    Includes detailed info: department, manager, team lead, members, start/end dates.
     """
     try:
         project = Project.objects.get(id=project_id)
@@ -40,18 +40,43 @@ def send_project_created_email(project_id):
         # Team Lead
         if project.team_lead and project.team_lead.user.email:
             recipients.append(project.team_lead.user.email)
-        # HR/Admin members
-        hr_members = Employee.objects.filter(role__in=["HR", "ADMIN"])
+        # HR/Admin
+        hr_members = Employee.objects.filter(role__in=[Employee.HR, Employee.ADMIN])
         recipients += [emp.user.email for emp in hr_members if emp.user.email]
 
         # Remove duplicates
         recipients = list(set(recipients))
 
+        # Gather project info
+        manager_name = project.manager.user.get_full_name() if project.manager else "N/A"
+        team_lead_name = project.team_lead.user.get_full_name() if project.team_lead else "N/A"
+        team_members = [member.user.get_full_name() for member in project.members.all()]
+        department_name = project.department.name if project.department else "N/A"
+        start_date = project.start_date.strftime("%d %b %Y %H:%M")
+        end_date = project.end_date.strftime("%d %b %Y %H:%M") if project.end_date else "Not set"
+
         for email in recipients:
             subject = f"New Project Assigned: {project.name}"
-            message = f"Hi,\n\nYou have been assigned or responsible for a new project: {project.name}.\n" \
-                      f"Description: {project.description}\n" \
-                      f"Start: {project.start_date}, End: {project.end_date}\n\nBest,\nProject Management System"
+            message = f"""
+Hi,
+
+A new project has been created: {project.name}
+
+Description: {project.description or 'No description provided'}
+
+Department: {department_name}
+Project Manager: {manager_name}
+Team Lead: {team_lead_name}
+Team Members: {', '.join(team_members) if team_members else 'No members assigned'}
+
+Start Date: {start_date}
+End Date: {end_date}
+
+Please check your responsibilities.
+
+Best regards,
+Project Management System
+"""
             send_mail(subject, message, 'no-reply@projectsystem.com', [email])
             print(f"✅ Email sent for project {project.name} to {email}")
 

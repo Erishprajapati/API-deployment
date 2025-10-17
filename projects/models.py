@@ -45,9 +45,6 @@ class ProjectDocuments(models.Model):
         return self.project.name
     
 
-"""
-
-"""
 
 class Tasks(models.Model):
     STATUS_CHOICES = [

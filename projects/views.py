@@ -1,15 +1,13 @@
-from rest_framework import viewsets, status, filters
+from rest_framework import viewsets, status, filters, permissions
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.response import Response
 from .models import * 
 from .serializers import *
-from django.db.models import Count
+from django.db.models import Min, Q, BooleanField, ExpressionWrapper, Count
 from employee.models import * 
 from django.core.exceptions import PermissionDenied
-from rest_framework import viewsets, permissions
 from employee.permissions import *
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Project, ProjectDocuments
@@ -20,42 +18,56 @@ from django.db.models import Min
 from employee.permissions import *
 from .tasks import *
 
-
 class ProjectViewSet(viewsets.ModelViewSet):
-    queryset = Project.objects.annotate(
-        earliest_deadline = Min('end_date')
-    )
     serializer_class = ProjectSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, IsAssignedProjectOrHigher]
     http_method_names = ['get', 'post', 'put', 'patch', 'delete']
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['name', 'description']
-    ordering_fields = ['name', 'priority']
+    ordering_fields = ['name', 'priority', 'earliest_deadline']
     ordering = ['name']
 
     def get_queryset(self):
         """
-        Filter projects based on employee role:
-        - HR/Admin: all projects
-        - Project Manager: projects they manage
-        - Team Lead: projects they lead
-        - Employee: projects they are assigned to
+        Role-based project filtering + overdue project highlighting
         """
         employee = getattr(self.request.user, "employee_profile", None)
         if not employee:
             return Project.objects.none()
 
+        today = timezone.now().date()
+
+        queryset = Project.objects.annotate(
+        earliest_due_date=Min('tasks__due_date')  # ✅ use 'tasks' because of related_name="tasks"
+        ).annotate(
+            is_overdue=ExpressionWrapper(
+                Q(earliest_due_date__lt=today),
+                output_field=BooleanField()
+            )
+        )
+        # Role-based filtering
         role = employee.role
         if role in [Employee.HR, Employee.ADMIN]:
-            return Project.objects.all()
+            queryset = queryset.all()
         elif role == Employee.PROJECT_MANAGER:
-            return Project.objects.filter(manager=employee)
+            queryset = queryset.filter(manager=employee)
         elif role == Employee.TEAM_LEAD:
-            return Project.objects.filter(team_lead=employee)
+            queryset = queryset.filter(team_lead=employee)
         elif role == Employee.EMPLOYEE:
-            return Project.objects.filter(members=employee)
-        return Project.objects.none()
+            queryset = queryset.filter(members=employee)
+        else:
+            return Project.objects.none()
+
+        # Role-based ordering
+        if role == Employee.EMPLOYEE:
+            # Employee: earliest deadlines (urgent first)
+            queryset = queryset.order_by('earliest_due_deadline')
+        else:
+            # Higher roles: name order
+            queryset = queryset.order_by('name')
+
+        return queryset
 
     def perform_create(self, serializer):
         """
@@ -64,20 +76,21 @@ class ProjectViewSet(viewsets.ModelViewSet):
         """
         employee = getattr(self.request.user, "employee_profile", None)
         if not employee:
-            return Response({"error": "Invalid user"}, status=status.HTTP_400_BAD_REQUEST)
+            raise serializers.ValidationError({"error": "Invalid user"})
 
         role = getattr(employee, "role", None)
-        if role == Employee.PROJECT_MANAGER:
-            serializer.save(created_by=employee, manager=employee)
-        else:
-            serializer.save(created_by=employee)
+
+        # Only one save call
         project = serializer.save(
-        created_by=employee,
-        manager=employee if role == Employee.PROJECT_MANAGER else None
-    )
+            created_by=employee,
+            manager=employee if role == Employee.PROJECT_MANAGER else None
+        )
+
+        # Send email asynchronously
         subject = f"New Project Created: {project.name}"
         message = f"Hello {employee.user.first_name}, your project '{project.name}' has been created successfully."
         send_assignment_email.delay(subject, message, employee.user.email)
+
 
     # @action(detail=True, methods=['post'])
     # def assign_members(self, request, pk=None):
