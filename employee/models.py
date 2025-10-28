@@ -52,8 +52,6 @@ class EmployeeStatus(Timestamp):
 
     def __str__(self):
         return "Active" if self.is_active else "Inactive"
-
-
 class Employee(Timestamp):
     GENDER_CHOICES = [
         ('M', "Male"),
@@ -99,7 +97,6 @@ class Employee(Timestamp):
     )
     skills = models.JSONField(_('Skills'), default=list, blank=True)
     date_of_joining = models.DateTimeField(null=False, blank=False, db_index=True)  # Set at signup
-    employee_status = models.ForeignKey(EmployeeStatus, on_delete=models.SET_NULL, blank=True, null=True)
     employee_code = models.CharField(
         max_length=255,
         unique=True,
