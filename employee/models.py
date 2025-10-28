@@ -22,7 +22,7 @@ class Timestamp(models.Model):
 
 
 class Department(models.Model):
-    name = models.CharField(_('Name'), max_length=50, unique=True)
+    name = models.CharField(_('Name'), max_length=50, unique=True, db_index=True)
     description = models.TextField(_('Description'), blank=True, null=True)
     department_code = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -83,7 +83,7 @@ class Employee(Timestamp):
         null=True,
         blank=True
     )
-    role = models.PositiveSmallIntegerField(choices=ROLE_CHOICES, default=EMPLOYEE)
+    role = models.PositiveSmallIntegerField(choices=ROLE_CHOICES, default=EMPLOYEE, db_index=True)
     phone = models.CharField(_('Phone'), max_length=10, validators=[nepali_phone_regex], unique=True)
     dob = models.DateField(_('Date of birth'), null=True, blank=True)
     address = models.TextField(_('Address'), blank=True, null=True)
@@ -94,10 +94,11 @@ class Employee(Timestamp):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='employees'
+        related_name='employees',
+        db_index=True
     )
     skills = models.JSONField(_('Skills'), default=list, blank=True)
-    date_of_joining = models.DateTimeField(null=False, blank=False)  # Set at signup
+    date_of_joining = models.DateTimeField(null=False, blank=False, db_index=True)  # Set at signup
     employee_status = models.ForeignKey(EmployeeStatus, on_delete=models.SET_NULL, blank=True, null=True)
     employee_code = models.CharField(
         max_length=255,
@@ -142,9 +143,9 @@ class EmployeeProfile(Timestamp):
         return str(self.employee)
     
 class Leave(Timestamp):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="leaves")
-    start_date = models.DateField()
-    end_date = models.DateField()
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="leaves", db_index=True)
+    start_date = models.DateField(db_index=True)
+    end_date = models.DateField(db_index=True)
     leave_reason = models.TextField()
 
     def __str__(self):
