@@ -7,16 +7,42 @@ class IsAssignedEmployeeOrReviewer(permissions.BasePermission):
     - Assigned employee can submit task for review (status='review')
     - PM / Team Lead / HR / Admin can approve or mark as completed
     """
-    def has_object_permission(self, request, view, obj):
+    def has_permission(self, request, view):
+        # Allow read operations for authenticated users
         if request.method in permissions.SAFE_METHODS:
             return True
+            
+        employee = getattr(request.user, "employee_profile", None)
+        if not employee:
+            return False
+            
+        # Higher roles can perform write operations
+        if employee.role in [Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.HR, Employee.ADMIN]:
+            return True
+            
+        # For write operations, we'll check in has_object_permission
+        return True
+        
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            # For read operations, check if user is assigned to this task
+            employee = getattr(request.user, "employee_profile", None)
+            if not employee:
+                return False
+                
+            # Higher roles can view all tasks
+            if employee.role in [Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.HR, Employee.ADMIN]:
+                return True
+                
+            # Regular employees can only view tasks assigned to them
+            return obj.assigned_to == employee
 
         employee = getattr(request.user, "employee_profile", None)
         if not employee:
             return False
 
         # Assigned employee can submit for review
-        if employee in obj.members.all() and request.data.get("status") == "review":
+        if obj.assigned_to == employee and request.data.get("status") == "review":
             return True
 
         # PM / Team Lead / HR / Admin can approve / complete

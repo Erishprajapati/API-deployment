@@ -30,6 +30,11 @@ class ProjectSerializer(serializers.ModelSerializer):
     )
     documents = ProjectDocumentSerializer(read_only=True, many=True)
 
+    def validate_end_date(self, value):
+        if value and value < timezone.now():
+            raise serializers.ValidationError("End date cannot be in the past.")
+        return value
+
     class Meta:
         model = Project
         fields = [

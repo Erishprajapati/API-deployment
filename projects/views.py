@@ -39,7 +39,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         today = timezone.now().date()
 
         queryset = Project.objects.annotate(
-        earliest_due_date=Min('tasks__due_date')  # ✅ use 'tasks' because of related_name="tasks"
+        earliest_due_date=Min('tasks__due_date')  #use 'tasks' because of related_name="tasks"
         ).annotate(
             is_overdue=ExpressionWrapper(
                 Q(earliest_due_date__lt=today),
@@ -61,26 +61,23 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         # Role-based ordering
         if role == Employee.EMPLOYEE:
-            # Employee: earliest deadlines (urgent first)
-            queryset = queryset.order_by('earliest_due_deadline')
+            queryset = queryset.order_by('earliest_due_date')
         else:
-            # Higher roles: name order
             queryset = queryset.order_by('name')
-
         return queryset
 
     def perform_create(self, serializer):
-        """
-        Automatically assign the logged-in user as the creator.
-        If the creator is a project manager, they are also assigned as the manager.
-        """
+        end_date = serializer.validated_data.get('end_date')
+        if end_date and end_date < timezone.now():
+            raise serializers.ValidationError({"end_date": "End date cannot be in the past."})
+
         employee = getattr(self.request.user, "employee_profile", None)
         if not employee:
             raise serializers.ValidationError({"error": "Invalid user"})
 
         role = getattr(employee, "role", None)
 
-        # Only one save call
+        # Only save once
         project = serializer.save(
             created_by=employee,
             manager=employee if role == Employee.PROJECT_MANAGER else None
@@ -244,7 +241,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     queryset = Tasks.objects.all()
     serializer_class = TaskSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer, IsProjectManagerOrSuperUserOrHR]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
     ordering_fields = ['title', 'status', 'priority', 'due_date']
@@ -256,20 +253,33 @@ class TaskViewSet(viewsets.ModelViewSet):
         if not user.is_authenticated:
             return Tasks.objects.none()
 
-        employee = getattr(user, "employee_profile", None)
-        if not employee:
-            return Tasks.objects.none()
-
         queryset = Tasks.objects.all()
+        
+        # Apply project filter if specified
         project_id = self.kwargs.get('project_pk')
-
         if project_id:
             queryset = queryset.filter(project_id=project_id)
-
-        if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+        
+        try:
+            employee = user.employee_profile
+            
+            # Higher roles can see all tasks
+            if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+                return queryset
+                
+            # Regular employees can see:
+            # 1. Tasks assigned to them
+            # 2. Unassigned tasks (where assigned_to is null) in their projects
+            employee_projects = Project.objects.filter(members=employee)
+            return queryset.filter(
+                Q(assigned_to=employee) | 
+                Q(assigned_to__isnull=True, project__in=employee_projects)
+            )
+            
+        except Exception as e:
+            print(f"Error getting employee profile: {e}")
+            # If there's an error, return all tasks as a fallback
             return queryset
-
-        return queryset.filter(assigned_to=employee)
     
     def perform_create(self, serializer):
         """
