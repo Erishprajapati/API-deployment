@@ -17,13 +17,13 @@ class EmployeeProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "employee", "profile_photo", "citizenship", "contact_agreement")
     search_fields = ("employee__full_name", "employee__email")  # search by employee info
 
-@admin.register(EmployeeStatus)
-class EmployeeStatusAdmin(admin.ModelAdmin):
-    list_display = ('id', 'status_display')  
+# @admin.register(EmployeeStatus)
+# class EmployeeStatusAdmin(admin.ModelAdmin):
+#     list_display = ('id', 'status_display')  
 
-    def status_display(self, obj):
-        return "Active" if obj.is_active else "Inactive"
-    status_display.short_description = 'Status'  
+#     def status_display(self, obj):
+#         return "Active" if obj.is_active else "Inactive"
+#     status_display.short_description = 'Status'  
 
 # admin.site.register(EmployeeStatus)
 @admin.register(Leave)
