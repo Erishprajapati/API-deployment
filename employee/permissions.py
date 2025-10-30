@@ -16,11 +16,6 @@ def has_role(user, *roles):
     """Check if user has one of the given roles."""
     return get_employee_role(user) in roles
 
-class IsHRorSuperUser(BasePermission):
-    """Allows access only to HR or Admin users."""
-    def has_permission(self, request, view):
-        return has_role(request.user, Employee.ADMIN, Employee.HR)
-
 class IsProjectManager(BasePermission):
     """Allows access only to Project Manager users."""
     def has_permission(self, request, view):
@@ -35,12 +30,19 @@ class IsEmployee(BasePermission):
     """Allows access only to general Employee users."""
     def has_permission(self, request, view):
         return has_role(request.user, Employee.EMPLOYEE)
-    
-class IsProjectManagerOrSuperUserOrHR(BasePermission):
-    """Allows access to Project Manager, HR, or Admin users."""
+class IsHROrAdminOrProjectManager(BasePermission):
+    """
+    Allows access only to users who are HR, Admin, or Project Manager.
+    """
     def has_permission(self, request, view):
-        return has_role(request.user, Employee.PROJECT_MANAGER, Employee.ADMIN, Employee.HR)
-    
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        employee = getattr(request.user, 'employee_profile', None)
+        if not employee:
+            return False
+
+        return employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]
 class IsNotAuthenticatedUser(BasePermission):
     """
     Allows access only to unauthenticated users.

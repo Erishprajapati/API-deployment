@@ -2,20 +2,19 @@
 
 from django.db import models, transaction
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AbstractUser
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import RegexValidator
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 User = get_user_model()
-
 """
 Abstract base class for shared fields
 """
 class Timestamp(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    is_active = models.BooleanField(default=True)
 
     class Meta:
         abstract = True
@@ -39,19 +38,11 @@ class Department(models.Model):
             self.department_code = f"{prefix}{last_count:03d}"
         super().save(*args, **kwargs)
 
-
-
 # Validator for Nepali phone numbers
 nepali_phone_regex = RegexValidator(
     regex=r'^9[6-8]\d{8}$',
     message=_("Kindly enter valid phone numbers")
 )
-
-class EmployeeStatus(Timestamp):
-    is_active = models.BooleanField(_('Status'), default=True)
-
-    def __str__(self):
-        return "Active" if self.is_active else "Inactive"
 class Employee(Timestamp):
     GENDER_CHOICES = [
         ('M', "Male"),
@@ -59,6 +50,12 @@ class Employee(Timestamp):
         ('O', 'Other'),
     ]
 
+    STATUS_ACTIVE = "active"
+    STATUS_INACTIVE = "inactive"
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_INACTIVE, "Inactive")
+    ]
     # Role choices
     HR = 1
     PROJECT_MANAGER = 2
@@ -81,6 +78,7 @@ class Employee(Timestamp):
         null=True,
         blank=True
     )
+    status = models.CharField(max_length=10, choices = STATUS_CHOICES, default = STATUS_ACTIVE, db_index=True)
     role = models.PositiveSmallIntegerField(choices=ROLE_CHOICES, default=EMPLOYEE, db_index=True)
     phone = models.CharField(_('Phone'), max_length=10, validators=[nepali_phone_regex], unique=True)
     dob = models.DateField(_('Date of birth'), null=True, blank=True)

@@ -9,35 +9,34 @@ User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, min_length=8)
-    full_name = serializers.CharField(write_only=True, required=False)
+    full_name = serializers.CharField(read_only = True)
 
     class Meta:
         model = User
         fields = ["first_name", "last_name", "full_name", "email", "password"]
 
-    def create(self, validated_data):
-        # Handle full_name → split into first_name, last_name
-        full_name = validated_data.pop("full_name", None)
-        if full_name and not (validated_data.get("first_name") and validated_data.get("last_name")):
-            parts = full_name.strip().split(" ", 1)
-            validated_data["first_name"] = parts[0]
-            validated_data["last_name"] = parts[1] if len(parts) > 1 else ""
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Compute full name dynamically
+        data["full_name"] = instance.get_full_name()
+        return data
 
+    def create(self, validated_data):
         return User.objects.create_user(
-            username=validated_data["email"],  # email as username
+            username=validated_data["email"],
             email=validated_data["email"],
-            first_name=validated_data["first_name"],
-            last_name=validated_data["last_name"],
+            first_name=validated_data.get("first_name", ""),
+            last_name=validated_data.get("last_name", ""),
             password=validated_data["password"],
         )
 
 
-class EmployeeStatusSerializer(serializers.ModelSerializer):
-    is_active = serializers.BooleanField(required=False, default=False)
+# class EmployeeStatusSerializer(serializers.ModelSerializer):
+#     is_active = serializers.BooleanField(required=False, default=False)
 
-    class Meta:
-        model = EmployeeStatus
-        fields = "__all__"
+#     class Meta:
+#         model = EmployeeStatus
+#         fields = "__all__"
 
 
 class EmployeeNestedMinimalSerializer(serializers.ModelSerializer):
@@ -64,10 +63,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
             message="This phone number is already registered."
         )]
     )
-
+    def validate_phone(self, value):
+        if not isinstance(value, int):
+            raise serializers.ValidationError("Phone must be a number, not a string")
+        if not 9600000000 <= value <= 9899999999:
+            raise serializers.ValidationError("Phone must be a valid 10-digit Nepali number")
+        return value
     class Meta:
         model = Employee
         fields = "__all__"
+        ready_only_fileds = ["status"]
         extra_kwargs = {
             "dob": {"required": True},
             "gender": {"required": True},
@@ -142,6 +147,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+class EmployeeAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fieds = "__all__"
 class DepartmentSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(required=False, default=False)
 
@@ -158,12 +168,12 @@ class DepartmentSerializer(serializers.ModelSerializer):
         return department
 
     def update(self, instance, validated_data: dict):
-        instance.name = validated_data.get("name", instance.name)
-        if "hr" in validated_data:
-            instance.hr = validated_data.get("hr")
+    # Update all relevant fields
+        for field in ['name', 'description', 'department_code', 'is_active', 'hr']:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
         instance.save()
         return instance
-
 
 class DepartmentNestedSerializer(serializers.ModelSerializer):
     class Meta:

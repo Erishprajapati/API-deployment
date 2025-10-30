@@ -15,11 +15,11 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_framework.response import Response
 from projects.permissions import IsAssignedProjectOrHigher
 from projects.models import * 
-class EmployeeStatusViewSet(viewsets.ModelViewSet):
-    queryset = EmployeeStatus.objects.all()
-    serializer_class = EmployeeStatusSerializer
-    lookup_field = "id"
-    http_method_names = ['get', 'post', 'put', 'patch']
+# class EmployeeStatusViewSet(viewsets.ModelViewSet):
+#     queryset = EmployeeStatus.objects.all()
+#     serializer_class = EmployeeStatusSerializer
+#     lookup_field = "id"
+#     http_method_names = ['get', 'post', 'put', 'patch']
 
 class DepartmentViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentSerializer
@@ -52,7 +52,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
     lookup_field = 'id'
     http_method_names = ['get', 'post', 'put', 'patch']
-    permission_classes = [IsProjectManagerOrSuperUserOrHR]
+    permission_classes = [IsHROrAdminOrProjectManager]
     authentication_classes = [JWTAuthentication]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

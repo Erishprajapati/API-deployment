@@ -5,7 +5,7 @@ from .views import *
 app_name = "employee"
 
 router = DefaultRouter()
-router.register(r'employee-status', EmployeeStatusViewSet, basename='employee-status')
+# router.register(r'employee-status', EmployeeStatusViewSet, basename='employee-status')
 router.register(r'employee', EmployeeViewSet, basename='employee')
 router.register(r'employee-profile', EmployeeProfileViewSet, basename='employee-profile')
 router.register(r'department', DepartmentViewSet, basename='department')
