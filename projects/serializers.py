@@ -60,42 +60,62 @@ class TaskSerializer(serializers.ModelSerializer):
     assigned_to = EmployeeNestedMinimalSerializer(read_only=True)
     created_by = EmployeeNestedMinimalSerializer(read_only=True)
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
+
     class Meta:
         model = Tasks
         fields = "__all__"
-        read_only_fields = ['created_by', 'created_at', 'updated_at', 'start_date', 'is_active', 'reviewed_by']
+        read_only_fields = [
+            'created_by', 'created_at', 'updated_at', 'start_date',
+            'is_active', 'reviewed_by', 'submitted_at', 'status'
+        ]
 
     def validate(self, data):
         project = data.get("project")
-        title = data.get("title") 
+        title = data.get("title")
 
         if project and title and Tasks.objects.filter(project=project, title__iexact=title).exists():
             raise serializers.ValidationError(
                 {"title": "A task with this title already exists in this project."}
             )
+
+        due_date = data.get("due_date")
+        if due_date:
+            from django.utils import timezone
+            if due_date < timezone.now():
+                raise serializers.ValidationError(
+                    {"due_date": "Due date cannot be in the past."}
+                )
+
         return data
 
-    # def create(self, validated_data):
-    #     user = self.context['request'].user
-    #     employee = getattr(user, 'employee_profile', None)
-    #     if not employee:
-    #         raise serializers.ValidationError({"detail": "User has no associated employee profile."})
+    def create(self, validated_data):
+        """Attach created_by automatically"""
+        request = self.context.get("request")
+        employee = getattr(request.user, "employee_profile", None)
+        if not employee:
+            raise serializers.ValidationError({"detail": "User has no associated employee profile."})
 
-    #     project = validated_data.pop('project')
-
-    #     task = Tasks.objects.create(
-    #         project=project,
-    #         created_by=employee,
-    #         **validated_data
-    #     )
-    #     return task
+        task = Tasks.objects.create(created_by=employee, **validated_data)
+        return task
 
     def update(self, instance, validated_data):
+        """
+        Limit updates to editable fields only.
+        """
+        protected_fields = {
+            'status', 'created_by', 'reviewed_by', 'submitted_at',
+            'submission_notes', 'submission_file'
+        }
+
         for attr, value in validated_data.items():
+            if attr in protected_fields:
+                # Ignore attempts to manually modify workflow fields
+                continue
             setattr(instance, attr, value)
+
         instance.save()
         return instance
+
 
 class ProjectEmployeeNestedSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()  # Only show name and email
