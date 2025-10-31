@@ -26,7 +26,6 @@ class Project(Timestamp):
     def __str__(self):
         return self.name
     
-
 """
 Project documents like the contract between clients and head
 functional requirements of client
@@ -43,9 +42,6 @@ class ProjectDocuments(models.Model):
 
     def __str__(self):
         return self.project.name
-    
-
-
 class Tasks(models.Model):
     STATUS_CHOICES = [
         ("todo", "To Do"),
@@ -69,6 +65,9 @@ class Tasks(models.Model):
     due_date = models.DateTimeField(blank=True, null=True, db_index=True) #TODO: due date in past should be checked
     created_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, related_name="created_tasks")
     created_at = models.DateTimeField(auto_now_add=True)
+    submitted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    submission_notes = models.TextField(blank=True, null=True)
+    submission_file = models.FileField(upload_to='task_submissions/', blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True, db_index=True)
     priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default="medium", db_index=True)
@@ -94,7 +93,6 @@ class TaskComment(models.Model):
 
     def __str__(self):
         return f"{self.author} on {self.task}: {self.description[:30]}..."
-
 
 """
 each parent folder can contain sub folders(child folder)
