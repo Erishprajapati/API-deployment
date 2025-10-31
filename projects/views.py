@@ -17,6 +17,7 @@ from .permissions import *
 from django.db.models import Min
 from employee.permissions import *
 from .tasks import *
+from .tasks import send_task_created_email
 
 class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
@@ -191,67 +192,76 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if not user.is_authenticated:
-            return Tasks.objects.none()
+        employee = getattr(user, 'employee_profile', None)
+        queryset = super().get_queryset()
 
-        queryset = Tasks.objects.all()
-        
-        # Apply project filter if specified
+        # Filter by project if nested route
         project_id = self.kwargs.get('project_pk')
         if project_id:
             queryset = queryset.filter(project_id=project_id)
-        
-        try:
-            employee = user.employee_profile
-            
-            # Higher roles can see all tasks
-            if employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
-                return queryset
-                
-            # Regular employees can see:
-            # 1. Tasks assigned to them
-            # 2. Unassigned tasks (where assigned_to is null) in their projects
-            employee_projects = Project.objects.filter(members=employee)
-            return queryset.filter(
-                Q(assigned_to=employee) | 
-                Q(assigned_to__isnull=True, project__in=employee_projects)
-            )
-            
-        except Exception as e:
-            print(f"Error getting employee profile: {e}")
-            # If there's an error, return all tasks as a fallback
-            return queryset
+
+        # Role-based filtering
+        if not user.is_superuser:  # optional, for global admin bypass
+            if hasattr(user, 'is_hr') and user.is_hr:
+                queryset = queryset  # HR can see all
+            elif hasattr(user, 'is_manager') and user.is_manager:
+                queryset = queryset.filter(project__project_manager=employee)
+            else:
+                # Default: normal employee sees only their own tasks
+                queryset = queryset.filter(assigned_to=employee)
+
+        return queryset.order_by('-created_at')
     
     def perform_create(self, serializer):
-        """
-        Save task and trigger Celery async job
-        """
         employee = getattr(self.request.user, "employee_profile", None)
         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
         task = serializer.save(created_by=employee, project=project)
-
-        # Celery Task (asynchronous)
-        from .tasks import send_task_created_email
         send_task_created_email.delay(task.id)
 
-    def perform_update(self, serializer):
-        """Handle task review workflow"""
-        task = serializer.instance
-        status_value = self.request.data.get("status")
-        employee = getattr(self.request.user, "employee_profile", None)
+    #Employee submits a task for review
+    @action(detail=True, methods=['post'])
+    def submit(self, request, pk=None):
+        task = self.get_object()
+        employee = getattr(request.user, "employee_profile", None)
 
-        if status_value == "review" and employee == task.assigned_to:
-            task.status = "review"
-        elif status_value == "completed" and employee and employee.role in ["PROJECT_MANAGER", "TEAM_LEAD", "HR", "ADMIN"]:
-            task.status = "completed"
-            task.reviewed_by = employee
+        if task.assigned_to != employee:
+            return Response({"detail": "You cannot submit a task not assigned to you."}, status=403)
+        
+        @action(detail=False, methods=['get'], url_path='my-tasks')
+        def my_tasks(self, request):
+            user = request.user
+            employee = getattr(user, 'employee_profile', None)
+            if not employee:
+                return Response({"detail": "No employee profile found"}, status=400)
 
+        task.status = "review"
+        task.submitted_at = timezone.now()
+        task.submission_notes = request.data.get("submission_notes", "")
+        if "submission_file" in request.FILES:
+            task.submission_file = request.FILES["submission_file"]
         task.save()
-        serializer.save()
-    
+        return Response({"message": "Task submitted for review."}, status=200)
+
+    # Manager/HR approves task
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        task = self.get_object()
+        employee = getattr(request.user, "employee_profile", None)
+
+        if employee.role not in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+            return Response({"detail": "You are not authorized to approve this task."}, status=403)
+
+        if task.status != "review":
+            return Response({"detail": "Task must be in review before approving."}, status=400)
+
+        task.status = "completed"
+        task.reviewed_by = employee
+        task.save()
+        return Response({"message": "Task approved and marked as completed."}, status=200)
+
+    # Manual Celery overdue trigger
     @action(detail=False, methods=['post'], permission_classes=[IsHROrAdminOrProjectManager])
     def trigger_overdue_check(self, request):
-        """Manually trigger overdue task check"""
         check_overdue_tasks.delay()
         return Response({"message": "Overdue check triggered"}, status=200)
 
@@ -295,10 +305,7 @@ class TaskCommentViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError("This user is not linked to an Employee profile.")
 
         employee = self.request.user.employee_profile
-        serializer.save(author=employee, commented_by=employee)
-
-
-        
+        serializer.save(author=employee, commented_by=employee)        
 class FolderViewSet(viewsets.ModelViewSet):
     queryset = Folder.objects.all().select_related("project", 'parent').annotate(
         child_count = Count("child"), lists_counts = Count("lists")
