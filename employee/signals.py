@@ -47,3 +47,10 @@ def update_employee_codes(sender, instance,created, **kwargs):
                     seq = emp.employee_code.split('-')[-1] if emp.employee_code else "001"
                     emp.employee_code = f"{new_dept_code}-{date_part}-{seq}"
                     emp.save(update_fields=["employee_code"])
+
+@receiver(post_save, sender=Department)
+def update_employee_hours(sender, instance, **kwargs):
+    instance.employees.update(
+        working_start_time=instance.working_start_time,
+        working_end_time=instance.working_end_time
+    )

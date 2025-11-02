@@ -24,6 +24,8 @@ class Department(models.Model):
     name = models.CharField(_('Name'), max_length=50, unique=True, db_index=True)
     description = models.TextField(_('Description'), blank=True, null=True)
     department_code = models.CharField(max_length=100, blank=True)
+    working_start_time = models.TimeField(_('Start Time'), default = '09:00')
+    working_end_time = models.TimeField(_('End Time'), default = '17:00')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
@@ -85,6 +87,8 @@ class Employee(Timestamp):
     address = models.TextField(_('Address'), blank=True, null=True)
     gender = models.CharField(_('Gender'), max_length=1, choices=GENDER_CHOICES, blank=True, null=True)
     position = models.CharField(_('Position'), max_length=25, blank=True)
+    working_start_time = models.TimeField(blank=True, null = True)
+    working_end_time = models.TimeField(blank=True, null = True)
     department = models.ForeignKey(
         Department,
         on_delete=models.SET_NULL,
@@ -106,7 +110,14 @@ class Employee(Timestamp):
         return self.user.get_full_name() if self.user else f"Employee {self.id}"
 
     def save(self, *args, **kwargs):
-        # Only generate code if not already set, and department/date are available
+    # Set working hours from department if not already set
+        if self.department:
+            if not self.working_start_time:
+                self.working_start_time = self.department.working_start_time
+            if not self.working_end_time:
+                self.working_end_time = self.department.working_end_time
+
+        # Generate employee code if not set
         if not self.employee_code and self.department and self.date_of_joining:
             with transaction.atomic():
                 existing_count = Employee.objects.filter(
@@ -120,6 +131,7 @@ class Employee(Timestamp):
                 self.employee_code = f"{dept_code}-{date_part}-{existing_count + 1:03d}"
 
         super().save(*args, **kwargs)
+
 
     @property
     def schedule(self):
