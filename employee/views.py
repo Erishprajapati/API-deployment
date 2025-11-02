@@ -46,7 +46,6 @@ class DepartmentViewSet(viewsets.ModelViewSet):
         assigned_projects = Project.objects.filter(members=user_profile).distinct()
         return Department.objects.filter(projects__in=assigned_projects).distinct().order_by('id')
 
-
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.all().order_by('id')
     serializer_class = EmployeeSerializer
@@ -141,10 +140,35 @@ class LeaveViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'put', 'patch']
 
 class WorkingHourViewSet(viewsets.ModelViewSet):
-    queryset = WorkingHour.objects.all()
     serializer_class = WorkinghourSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+
+        # Get department of the employee if they are not admin/HR
+        try:
+            employee = user.employee
+            user_department = employee.department
+        except Employee.DoesNotExist:
+            employee = None
+            user_department = None
+
+        # Check if the user is HR/Admin/PM
+        if user.role in ["HR", "ADMIN", "PM"]:  # adjust based on your role field
+            queryset = WorkingHour.objects.all()
+            # optionally allow filtering by department via query param
+            department_id = self.request.query_params.get("department")
+            if department_id:
+                queryset = queryset.filter(employee__department_id=department_id)
+        else:
+            # Normal employee: only see their department
+            if user_department:
+                queryset = WorkingHour.objects.filter(employee__department=user_department)
+            else:
+                queryset = WorkingHour.objects.none()  # no department, return empty
+
+        return queryset
 class EmployeeScheduleViewSet(viewsets.ModelViewSet):
     queryset = EmployeeSchedule.objects.all()
     serializer_class = EmployeeScheduleSerializer

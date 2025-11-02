@@ -64,9 +64,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
         )]
     )
     def validate_phone(self, value):
-        if not isinstance(value, int):
-            raise serializers.ValidationError("Phone must be a number, not a string")
-        if not 9600000000 <= value <= 9899999999:
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone must contain only digits")
+        if not 9600000000 <= int(value) <= 9899999999:
             raise serializers.ValidationError("Phone must be a valid 10-digit Nepali number")
         return value
     class Meta:
