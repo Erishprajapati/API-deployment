@@ -4,13 +4,10 @@ from rest_framework import serializers
 from .models import *
 from rest_framework.validators import UniqueValidator
 from rest_framework.exceptions import ValidationError
-
 User = get_user_model()
-
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, min_length=8)
     full_name = serializers.CharField(read_only = True)
-
     class Meta:
         model = User
         fields = ["first_name", "last_name", "full_name", "email", "password"]
@@ -29,16 +26,6 @@ class UserSerializer(serializers.ModelSerializer):
             last_name=validated_data.get("last_name", ""),
             password=validated_data["password"],
         )
-
-
-# class EmployeeStatusSerializer(serializers.ModelSerializer):
-#     is_active = serializers.BooleanField(required=False, default=False)
-
-#     class Meta:
-#         model = EmployeeStatus
-#         fields = "__all__"
-
-
 class EmployeeNestedMinimalSerializer(serializers.ModelSerializer):
     user = serializers.SerializerMethodField()
 
@@ -154,11 +141,9 @@ class EmployeeAdminSerializer(serializers.ModelSerializer):
         fieds = "__all__"
 class DepartmentSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(required=False, default=False)
-
     class Meta:
         model = Department
         fields = "__all__"
-
     def create(self, validated_data: dict) -> Department:
         hr = validated_data.pop("hr", None)
         department = Department.objects.create(**validated_data)
@@ -182,7 +167,6 @@ class DepartmentNestedSerializer(serializers.ModelSerializer):
 
 class EmployeeProfileSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
-
     class Meta:
         model = EmployeeProfile
         fields = [
@@ -209,12 +193,22 @@ class LeaveSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"end_date": "End date cannot be before start date."})
         return data
 
-class WorkinghourSerializer(serializers.ModelSerializer):
+class EmployeeWorkingHourSerializer(serializers.ModelSerializer):
+    department_name = serializers.CharField(source='department.name', read_only=True)
+
     class Meta:
         model = WorkingHour
-        fields = "__all__"
-        read_only_fields = ["day_of_week"]
+        fields = ['department_name', 'days_of_week', 'start_time', 'end_time']
 
+class DepartmentWorkingHoursSerializer(serializers.ModelSerializer):
+    working_hours = serializers.SerializerMethodField()
+    class Meta:
+        model = Department
+        fields = ['id', 'working_hours']
+
+    def get_working_hours(self, obj):
+        hours = WorkingHour.objects.filter(department=obj)
+        return EmployeeWorkingHourSerializer(hours, many=True).data
 class EmployeeScheduleSerializer(serializers.ModelSerializer):
     employee_name = serializers.SerializerMethodField(read_only = True)
     class Meta:
