@@ -34,7 +34,7 @@ class LeaveAdmin(admin.ModelAdmin):
     # full_name.short_description = "Employee"
 @admin.register(WorkingHour)
 class WorkingHourAdmin(admin.ModelAdmin):
-    list_display = ('id', 'employee', 'day_of_week', 'start_time', 'end_time')
+    list_display = ('id', 'department', 'DAYS_OF_WEEK_CHOICES', 'start_time', 'end_time')
 @admin.register(EmployeeSchedule)
 class EmployeeScheduleAdmin(admin.ModelAdmin):
     list_display = ('id', 'employee', 'availability')
