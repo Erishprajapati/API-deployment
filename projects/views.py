@@ -178,12 +178,11 @@ class ProjectViewSet(viewsets.ModelViewSet):
         documents = ProjectDocuments.objects.filter(project=project)
         serializer = ProjectDocumentSerializer(documents, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Tasks.objects.all()
     serializer_class = TaskSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsSelfOrTeamLeadOrHROrPMOrADMIN]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
     ordering_fields = ['title', 'status', 'priority', 'due_date']
@@ -192,33 +191,37 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        employee = getattr(user, 'employee_profile', None)
+
+        if getattr(self, 'swagger_fake_view', False) or not user.is_authenticated:
+            return Tasks.objects.none()
+
         queryset = super().get_queryset()
-
-        # Filter by project if nested route
         project_id = self.kwargs.get('project_pk')
-        if project_id:
-            queryset = queryset.filter(project_id=project_id)
 
-        # Role-based filtering
-        if not user.is_superuser:  # optional, for global admin bypass
-            if hasattr(user, 'is_hr') and user.is_hr:
-                queryset = queryset  # HR can see all
-            elif hasattr(user, 'is_manager') and user.is_manager:
-                queryset = queryset.filter(project__project_manager=employee)
-            else:
-                # Default: normal employee sees only their own tasks
-                queryset = queryset.filter(assigned_to=employee)
+        # Get employee if exists (some HR/Admin accounts may not have one)
+        employee = getattr(user, "employee_profile", None)
 
-        return queryset.order_by('-created_at')
-    
+        # Higher roles: full access
+        if employee and employee.role in [Employee.HR, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.ADMIN]:
+            if project_id:
+                queryset = queryset.filter(project_id=project_id)
+            return queryset.order_by('-created_at')
+
+        # Normal employees: filter by assigned tasks only
+        if employee:
+            if project_id:
+                queryset = queryset.filter(project_id=project_id)
+            return queryset.filter(assigned_to=employee).order_by('-created_at')
+
+        # No employee object → nothing to show
+        return Tasks.objects.none()
+
     def perform_create(self, serializer):
         employee = getattr(self.request.user, "employee_profile", None)
         project = Project.objects.get(pk=self.kwargs.get("project_pk"))
         task = serializer.save(created_by=employee, project=project)
         send_task_created_email.delay(task.id)
 
-    #Employee submits a task for review
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         task = self.get_object()
@@ -226,13 +229,6 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         if task.assigned_to != employee:
             return Response({"detail": "You cannot submit a task not assigned to you."}, status=403)
-        
-        @action(detail=False, methods=['get'], url_path='my-tasks')
-        def my_tasks(self, request):
-            user = request.user
-            employee = getattr(user, 'employee_profile', None)
-            if not employee:
-                return Response({"detail": "No employee profile found"}, status=400)
 
         task.status = "review"
         task.submitted_at = timezone.now()
@@ -242,13 +238,17 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.save()
         return Response({"message": "Task submitted for review."}, status=200)
 
-    # Manager/HR approves task
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
-        if employee.role not in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+        if employee.role not in [
+            Employee.HR,
+            Employee.ADMIN,
+            Employee.PROJECT_MANAGER,
+            Employee.TEAM_LEAD,
+        ]:
             return Response({"detail": "You are not authorized to approve this task."}, status=403)
 
         if task.status != "review":
@@ -259,26 +259,11 @@ class TaskViewSet(viewsets.ModelViewSet):
         task.save()
         return Response({"message": "Task approved and marked as completed."}, status=200)
 
-    # Manual Celery overdue trigger
     @action(detail=False, methods=['post'], permission_classes=[IsHROrAdminOrProjectManager])
     def trigger_overdue_check(self, request):
         check_overdue_tasks.delay()
         return Response({"message": "Overdue check triggered"}, status=200)
 
-
-class IsProjectAuthorized(permissions.BasePermission):
-    def has_permission(self, request, view):
-        if not request.user.is_authenticated:   
-            return False
-
-        employee = getattr(request.user, "employee_profile", None)
-        if not employee:
-            return False
-
-        if view.action == "create":
-            return employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]
-
-        return True
 class TaskCommentViewSet(viewsets.ModelViewSet):
     serializer_class = TaskCommentSerializer
     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
