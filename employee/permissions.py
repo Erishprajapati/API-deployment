@@ -55,14 +55,15 @@ class IsSelfOrTeamLeadOrHROrPMOrADMIN(BasePermission):
 
     def has_object_permission(self, request, view, obj):
         user = request.user
-        employee = getattr(user, "employee_profile", None)
 
-        if employee is None:
-            return False
-
-        # Higher roles → full access
+        # Higher roles → full access, even without employee object
         if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
             return True
+
+        # Get employee if exists
+        employee = getattr(user, "employee_profile", None)
+        if employee is None:
+            return False
 
         # Assigned employee can access
         if hasattr(obj, "task") and obj.task.assigned_to == employee:

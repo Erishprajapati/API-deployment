@@ -96,6 +96,19 @@ class IsAssignedProjectOrHigher(BasePermission):
         return False
 
 
+class IsProjectAuthorized(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:   
+            return False
+
+        employee = getattr(request.user, "employee_profile", None)
+        if not employee:
+            return False
+
+        if view.action == "create":
+            return employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]
+
+        return True
 
 # class IsProjectAuthorized(permissions.BasePermission):
 #     def has_permission(self, request, view):

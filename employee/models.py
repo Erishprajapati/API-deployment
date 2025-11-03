@@ -7,6 +7,7 @@ from django.utils.translation import gettext_lazy as _
 from django.core.validators import RegexValidator
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from multiselectfield import MultiSelectField
 
 User = get_user_model()
 """
@@ -167,26 +168,25 @@ class Leave(Timestamp):
             raise ValidationError({"end_date": "End date cannot be before start date."})
         
 class WorkingHour(Timestamp):
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="working_hours")
-    day_of_week = models.CharField(
-        max_length = 10,
-        choices = [
-            ("sunday", "Sunday"),
-            ("monday", "Monday"),
-            ("tuesday", "Tuesday"),
-            ("wednesday", "Wednesday"),
-            ("thursday", "Thursday"),
-            ("friday", "Friday"),
-            ("saturday", "Saturday")
-        ],
-    )
+    department = models.ForeignKey("Department", on_delete=models.CASCADE, related_name="working_hours")
 
+    DAYS_OF_WEEK_CHOICES = [
+        ("sunday", "Sunday"),
+        ("monday", "Monday"),
+        ("tuesday", "Tuesday"),
+        ("wednesday", "Wednesday"),
+        ("thursday", "Thursday"),
+        ("friday", "Friday"),
+        ("saturday", "Saturday")
+    ]
+
+    days_of_week = MultiSelectField(choices=DAYS_OF_WEEK_CHOICES, default=['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
     start_time = models.TimeField()
     end_time = models.TimeField()
 
     def __str__(self):
-        return f"{self.employee} - {self.day_of_week}: {self.start_time} to {self.end_time}"
-    
+        return f"{self.department.name} - {self.days_of_week}: {self.start_time} to {self.end_time}"
+
 class EmployeeSchedule(Timestamp):
     STATUS_CHOICES = [
         ('available', 'Available'),

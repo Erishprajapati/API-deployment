@@ -169,7 +169,6 @@ class FolderSerializer(serializers.ModelSerializer):
     lists_count = serializers.SerializerMethodField()
     read_only_fields = ["uploaded_by", "created_at"]
 
-    
     class Meta:
         model = Folder
         fields = "__all__"

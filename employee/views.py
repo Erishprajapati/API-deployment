@@ -15,12 +15,8 @@ from allauth.socialaccount.providers.oauth2.client import OAuth2Client
 from rest_framework.response import Response
 from projects.permissions import IsAssignedProjectOrHigher
 from projects.models import * 
-# class EmployeeStatusViewSet(viewsets.ModelViewSet):
-#     queryset = EmployeeStatus.objects.all()
-#     serializer_class = EmployeeStatusSerializer
-#     lookup_field = "id"
-#     http_method_names = ['get', 'post', 'put', 'patch']
-
+from datetime import timedelta
+from rest_framework.exceptions import PermissionDenied
 class DepartmentViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentSerializer
     queryset = Department.objects.all()
@@ -68,21 +64,7 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             "message": "Employee created successfully!",
             "employee": EmployeeSerializer(employee).data
         }, status=status.HTTP_201_CREATED)
-# class EmployeeProfileViewSet(viewsets.ModelViewSet):
-#     queryset = EmployeeProfile.objects.all().order_by('id')
-#     serializer_class = EmployeeProfileSerializer
-#     lookup_field = 'id'
-#     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
-#     http_method_names = ['get', 'post', 'put', 'patch']
 
-#     """code ensures the employee can view their own profile"""
-#     """HR, Team_lead, Project_manager can view all the profiles of employee"""
-#     def get_queryset(self):
-#         user = self.request.user  
-#         if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.ADMIN, Employee.PROJECT_MANAGER):
-#             return EmployeeProfile.objects.all().order_by('id')
-#         return EmployeeProfile.objects.filter(employee=user)
-    
 class EmployeeProfileViewSet(viewsets.ModelViewSet):
     queryset = EmployeeProfile.objects.all().order_by('id')
     serializer_class = EmployeeProfileSerializer
@@ -134,41 +116,56 @@ class GoogleLogin(SocialLoginView):
     
 
 class LeaveViewSet(viewsets.ModelViewSet):
-    queryset = Leave.objects.all()
     serializer_class = LeaveSerializer
-    permission_classes = [IsAuthenticated]
-    http_method_names = ['get', 'post', 'put', 'patch']
+    permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
-class WorkingHourViewSet(viewsets.ModelViewSet):
-    serializer_class = WorkinghourSerializer
+    def get_queryset(self):
+        user = self.request.user
+        employee = getattr(user, "employee_profile", None)
+        if employee is None:
+            return Leave.objects.none()
+
+        # Higher roles see all leaves
+        if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
+            return Leave.objects.all().order_by('-start_date')
+
+        # Normal employees: only their leaves, max 1 year old
+        one_year_ago = timezone.now() - timedelta(days=365)
+        return Leave.objects.filter(employee=employee, start_date__gte=one_year_ago)
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        employee = getattr(user, "employee_profile", None)
+        if employee is None:
+            raise PermissionDenied("No employee profile found.")
+
+        # Higher roles can create leave for anyone
+        if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
+            serializer.save()
+        else:
+            # Normal employees can only create leave for themselves
+            serializer.save(employee=employee)
+class DepartmentWorkingHourViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Department.objects.all()
+    serializer_class = DepartmentWorkingHoursSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
+        employee = getattr(user, "employee_profile", None)
 
-        # Get department of the employee if they are not admin/HR
-        try:
-            employee = user.employee
-            user_department = employee.department
-        except Employee.DoesNotExist:
-            employee = None
-            user_department = None
+        # HR/Admin/PM: see all departments
+        if employee and employee.role in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER]:
+            return self.queryset
 
-        # Check if the user is HR/Admin/PM
-        if user.role in ["HR", "ADMIN", "PM"]:  # adjust based on your role field
-            queryset = WorkingHour.objects.all()
-            # optionally allow filtering by department via query param
-            department_id = self.request.query_params.get("department")
-            if department_id:
-                queryset = queryset.filter(employee__department_id=department_id)
-        else:
-            # Normal employee: only see their department
-            if user_department:
-                queryset = WorkingHour.objects.filter(employee__department=user_department)
-            else:
-                queryset = WorkingHour.objects.none()  # no department, return empty
+        # Normal employee: only their own department
+        if employee and employee.department:
+            return self.queryset.filter(id=employee.department.id)
 
-        return queryset
+        # No employee object → empty
+        return Department.objects.none()
+
 class EmployeeScheduleViewSet(viewsets.ModelViewSet):
     queryset = EmployeeSchedule.objects.all()
     serializer_class = EmployeeScheduleSerializer
