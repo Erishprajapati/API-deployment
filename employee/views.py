@@ -17,6 +17,8 @@ from projects.permissions import IsAssignedProjectOrHigher
 from projects.models import * 
 from datetime import timedelta
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.decorators import action
+from .utils import has_role
 class DepartmentViewSet(viewsets.ModelViewSet):
     serializer_class = DepartmentSerializer
     queryset = Department.objects.all()
@@ -113,8 +115,6 @@ class GoogleLogin(SocialLoginView):
         user = self.user
         refresh = RefreshToken.for_user(user)
         return JsonResponse({"access": str(refresh.access_token), "refresh": str(refresh)})
-    
-
 class LeaveViewSet(viewsets.ModelViewSet):
     serializer_class = LeaveSerializer
     permission_classes = [IsSelfOrTeamLeadOrHROrPMOrADMIN]
@@ -126,11 +126,9 @@ class LeaveViewSet(viewsets.ModelViewSet):
         if employee is None:
             return Leave.objects.none()
 
-        # Higher roles see all leaves
         if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
             return Leave.objects.all().order_by('-start_date')
 
-        # Normal employees: only their leaves, max 1 year old
         one_year_ago = timezone.now() - timedelta(days=365)
         return Leave.objects.filter(employee=employee, start_date__gte=one_year_ago)
 
@@ -139,13 +137,51 @@ class LeaveViewSet(viewsets.ModelViewSet):
         employee = getattr(user, "employee_profile", None)
         if employee is None:
             raise PermissionDenied("No employee profile found.")
+        serializer.save(employee=employee)
 
-        # Higher roles can create leave for anyone
-        if has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
-            serializer.save()
-        else:
-            # Normal employees can only create leave for themselves
-            serializer.save(employee=employee)
+    @action(detail=True, methods=["patch"], url_path="approve")
+    def approve_leave(self, request, pk=None):
+        leave = self.get_object()
+        user = request.user
+        employee = getattr(user, "employee_profile", None)
+
+        if not has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
+            raise PermissionDenied("Only HR/Managers can approve or reject leaves.")
+
+        status_choice = request.data.get("status")
+        if status_choice not in ["APPROVED", "REJECTED"]:
+            return Response({"error": "Invalid status. Must be APPROVED or REJECTED."}, status=400)
+
+        leave.status = status_choice
+        leave.approved_by = employee
+        leave.approved_at = timezone.now()
+        leave.save()
+
+        return Response(LeaveSerializer(leave).data)
+    @action(detail=True, methods=["patch"], url_path="cancel")
+    def cancel_leave(self, request, pk=None):
+        leave = self.get_object()
+        user = request.user
+        employee = getattr(user, "employee_profile", None)
+
+        if employee is None:
+            raise PermissionDenied("No employee profile found.")
+
+        # Check if the user is privileged
+        if not has_role(user, Employee.HR, Employee.TEAM_LEAD, Employee.PROJECT_MANAGER, Employee.ADMIN):
+            # Normal employee: can cancel only their own leave
+            if leave.employee != employee:
+                raise PermissionDenied("You can only cancel your own leave request.")
+
+        if leave.status != "PENDING":
+            return Response(
+                {"detail": "Only pending leaves can be cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        leave.status = "CANCELLED"
+        leave.save(update_fields=["status"])
+        return Response({"status": "CANCELLED"}, status=status.HTTP_200_OK)
 class DepartmentWorkingHourViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Department.objects.all()
     serializer_class = DepartmentWorkingHoursSerializer
