@@ -178,11 +178,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
         documents = ProjectDocuments.objects.filter(project=project)
         serializer = ProjectDocumentSerializer(documents, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
 class TaskViewSet(viewsets.ModelViewSet):
     queryset = Tasks.objects.all()
     serializer_class = TaskSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, IsSelfOrTeamLeadOrHROrPMOrADMIN]
+    permission_classes = [IsAuthenticated, IsAssignedEmployeeOrReviewer]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'description', 'assigned_to__user__first_name', 'assigned_to__user__last_name']
     ordering_fields = ['title', 'status', 'priority', 'due_date']
@@ -191,29 +192,22 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-
         if getattr(self, 'swagger_fake_view', False) or not user.is_authenticated:
             return Tasks.objects.none()
-
         queryset = super().get_queryset()
         project_id = self.kwargs.get('project_pk')
-
-        # Get employee if exists (some HR/Admin accounts may not have one)
         employee = getattr(user, "employee_profile", None)
 
-        # Higher roles: full access
         if employee and employee.role in [Employee.HR, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.ADMIN]:
             if project_id:
                 queryset = queryset.filter(project_id=project_id)
             return queryset.order_by('-created_at')
 
-        # Normal employees: filter by assigned tasks only
         if employee:
             if project_id:
                 queryset = queryset.filter(project_id=project_id)
             return queryset.filter(assigned_to=employee).order_by('-created_at')
 
-        # No employee object → nothing to show
         return Tasks.objects.none()
 
     def perform_create(self, serializer):
@@ -223,12 +217,19 @@ class TaskViewSet(viewsets.ModelViewSet):
         send_task_created_email.delay(task.id)
 
     @action(detail=True, methods=['post'])
-    def submit(self, request, pk=None):
+    def submit(self, request, pk=None, **kwargs):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
-        if task.assigned_to != employee:
+        if not employee or task.assigned_to_id != employee.id:
             return Response({"detail": "You cannot submit a task not assigned to you."}, status=403)
+
+        # Prevent multiple submissions if already under review or completed
+        if task.status in ["review", "completed", "cancelled"]:
+            return Response(
+                {"detail": f"Task cannot be submitted in its current status: {task.status}."},
+                status=400
+            )
 
         task.status = "review"
         task.submitted_at = timezone.now()
@@ -236,19 +237,14 @@ class TaskViewSet(viewsets.ModelViewSet):
         if "submission_file" in request.FILES:
             task.submission_file = request.FILES["submission_file"]
         task.save()
-        return Response({"message": "Task submitted for review."}, status=200)
 
+        return Response({"message": "Task submitted for review."}, status=200)
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
-        if employee.role not in [
-            Employee.HR,
-            Employee.ADMIN,
-            Employee.PROJECT_MANAGER,
-            Employee.TEAM_LEAD,
-        ]:
+        if employee.role not in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
             return Response({"detail": "You are not authorized to approve this task."}, status=403)
 
         if task.status != "review":
@@ -256,11 +252,51 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         task.status = "completed"
         task.reviewed_by = employee
+        # Optional: store approval note if provided
+        approval_note = request.data.get("approval_note")
+        if approval_note:
+            task.submission_notes = approval_note
         task.save()
         return Response({"message": "Task approved and marked as completed."}, status=200)
 
+
+    @action(detail=True, methods=['patch'], url_path="cancel")
+    def cancel_task(self, request, pk=None, **kwargs):
+        task = self.get_object()
+        employee = getattr(request.user, "employee_profile", None)
+
+        if not employee:
+            return Response({"detail": "No employee profile found."}, status=403)
+
+        if employee.role not in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+            if task.assigned_to != employee:
+                return Response({"detail": "You can only cancel your own tasks."}, status=403)
+
+        if task.status not in ["todo", "in_progress"]:
+            return Response({"detail": "Only tasks not yet submitted or in progress can be cancelled."}, status=400)
+
+        task.status = "cancelled"
+        task.save(update_fields=["status"])
+        return Response({"message": "Task cancelled successfully."}, status=200)
+
+    @action(detail=True, methods=['patch'], url_path="reject")
+    def reject_task(self, request, pk=None, **kwargs):
+        task = self.get_object()
+        employee = getattr(request.user, "employee_profile", None)
+
+        if not employee or employee.role not in [Employee.HR, Employee.ADMIN, Employee.PROJECT_MANAGER, Employee.TEAM_LEAD]:
+            return Response({"detail": "You are not authorized to reject this task."}, status=403)
+
+        if task.status != "review":
+            return Response({"detail": "Only tasks under review can be rejected."}, status=400)
+
+        task.status = "in_progress"
+        task.reviewed_by = employee
+        task.save()
+        return Response({"message": "Task rejected successfully."}, status=200)
+
     @action(detail=False, methods=['post'], permission_classes=[IsHROrAdminOrProjectManager])
-    def trigger_overdue_check(self, request):
+    def trigger_overdue_check(self, request, **kwargs):
         check_overdue_tasks.delay()
         return Response({"message": "Overdue check triggered"}, status=200)
 

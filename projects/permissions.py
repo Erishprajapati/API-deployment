@@ -24,29 +24,20 @@ class IsAssignedEmployeeOrReviewer(permissions.BasePermission):
         return True
         
     def has_object_permission(self, request, view, obj):
-        if request.method in permissions.SAFE_METHODS:
-            # For read operations, check if user is assigned to this task
-            employee = getattr(request.user, "employee_profile", None)
-            if not employee:
-                return False
-                
-            # Higher roles can view all tasks
-            if employee.role in [Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.HR, Employee.ADMIN]:
-                return True
-                
-            # Regular employees can only view tasks assigned to them
-            return obj.assigned_to == employee
-
         employee = getattr(request.user, "employee_profile", None)
         if not employee:
             return False
 
-        # Assigned employee can submit for review
-        if obj.assigned_to == employee and request.data.get("status") == "review":
+        # Higher roles → full access
+        if employee.role in [Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.HR, Employee.ADMIN]:
             return True
 
-        # PM / Team Lead / HR / Admin can approve / complete
-        if employee.role in [Employee.PROJECT_MANAGER, Employee.TEAM_LEAD, Employee.HR, Employee.ADMIN]:
+        # Assigned employee can submit via the submit action
+        if view.action == "submit" and obj.assigned_to == employee:
+            return True
+
+        # Normal GET/HEAD/OPTIONS access for assigned employee
+        if request.method in SAFE_METHODS and obj.assigned_to == employee:
             return True
 
         return False

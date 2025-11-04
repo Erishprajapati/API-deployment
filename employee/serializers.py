@@ -164,7 +164,6 @@ class DepartmentNestedSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
         fields = ["name", "description"]
-
 class EmployeeProfileSerializer(serializers.ModelSerializer):
     employee = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all())
     class Meta:
@@ -176,22 +175,70 @@ class EmployeeProfileSerializer(serializers.ModelSerializer):
             "contact_agreement",
         ]
 class LeaveSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source="employee.user.get_full_name", read_only=True)
+
     class Meta:
         model = Leave
-        fields = "__all__"
-        read_only_fields = ["leave_reason"]  # user cannot modify this directly
+        fields = [
+            "id","employee_name","start_date","end_date","leave_reason","status","approved_at","approved_by","created_at","updated_at",
+        ]
+        read_only_fields = [
+            "status",
+            "approved_at",
+            "approved_by",
+            "created_at",
+            "updated_at",
+            "employee_name",
+        ]
 
     def validate(self, data):
         today = timezone.now().date()
         start_date = data.get("start_date")
         end_date = data.get("end_date")
+        leave_reason = data.get("leave_reason")
+        employee = self.context['request'].user.employee_profile
 
+        # Basic date validation
         if start_date and start_date < today:
             raise serializers.ValidationError({"start_date": "Start date cannot be in the past."})
 
         if end_date and start_date and end_date < start_date:
             raise serializers.ValidationError({"end_date": "End date cannot be before start date."})
+
+        # Check for duplicate leaves
+        overlapping_leave = Leave.objects.filter(
+            employee=employee,
+            start_date=start_date,
+            end_date=end_date,
+            leave_reason=leave_reason
+        ).exists()
+
+        if overlapping_leave:
+            raise serializers.ValidationError(
+                "A leave with the same dates and reason already exists for this employee."
+            )
+
         return data
+
+    def create(self, validated_data):
+        """Force attach the logged-in employee and default status."""
+        request = self.context.get("request")
+        if request and hasattr(request.user, "employee_profile"):
+            validated_data["employee"] = request.user.employee_profile
+        validated_data.setdefault("status", "PENDING")
+        return super().create(validated_data)
+    
+class LeaveApprovalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Leave
+        fields = ["status", "approved_by", "approved_at"]
+
+    def update(self, instance, validated_data):
+        request = self.context.get("request")
+        if request and hasattr(request.user, "employee_profile"):
+            validated_data["approved_by"] = request.user.employee_profile
+        validated_data["approved_at"] = timezone.now()
+        return super().update(instance, validated_data)
 
 class EmployeeWorkingHourSerializer(serializers.ModelSerializer):
     department_name = serializers.CharField(source='department.name', read_only=True)
