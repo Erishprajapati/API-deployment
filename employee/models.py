@@ -132,8 +132,6 @@ class Employee(Timestamp):
                 self.employee_code = f"{dept_code}-{date_part}-{existing_count + 1:03d}"
 
         super().save(*args, **kwargs)
-
-
     @property
     def schedule(self):
         try:
@@ -151,22 +149,36 @@ class EmployeeProfile(Timestamp):
         return str(self.employee)
     
 class Leave(Timestamp):
+    STATUS_CHOICES = [
+    ("PENDING", "Pending"),
+    ("APPROVED", "Approved"),
+    ("REJECTED", "Rejected"),
+    ("CANCELLED", "Cancelled"),
+    ]
+
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="leaves", db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="PENDING")
     start_date = models.DateField(db_index=True)
     end_date = models.DateField(db_index=True)
-    leave_reason = models.TextField()
+    leave_reason = models.TextField(max_length=255,null=False)
+    approved_by = models.ForeignKey(Employee, null=True, blank=True, on_delete=models.SET_NULL, related_name="approved_leaves")
+    approved_at = models.DateTimeField(null=True, blank=True)
+
 
     def __str__(self):
         return f"{self.employee} on leave from {self.start_date} to {self.end_date} for {self.leave_reason}"
     
     def clean(self):
         today = timezone.now().date()
-        """start date cannot be in past"""
-        if self.start_date<today:
-            raise ValidationError({"Start Date" : "Start date can not be in past time"})
-        if self.end_date<today:
+        if self.start_date < today:
+            raise ValidationError({"start_date": "Start date cannot be in the past."})
+        if self.end_date < self.start_date:
             raise ValidationError({"end_date": "End date cannot be before start date."})
         
+    @property
+    def total_days(self):
+        return (self.end_date - self.start_date).days + 1
+
 class WorkingHour(Timestamp):
     department = models.ForeignKey("Department", on_delete=models.CASCADE, related_name="working_hours")
 
