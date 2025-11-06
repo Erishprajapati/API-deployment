@@ -23,7 +23,7 @@ schema_view = get_schema_view(
     permission_classes=[permissions.AllowAny],
 )
 def home(request):
-    return HttpResponse("Welcome to Project Management API!")
+    return HttpResponse("/swagger/ in url for api")
 
 urlpatterns = [
     path("", home),

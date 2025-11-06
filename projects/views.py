@@ -89,17 +89,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         message = f"Hello {employee.user.first_name}, your project '{project.name}' has been created successfully."
         send_assignment_email.delay(subject, message, employee.user.email)
 
-
-    # @action(detail=True, methods=['post'])
-    # def assign_members(self, request, pk=None):
-    #     """
-    #     Assign or update project members.
-    #     """
-    #     project = self.get_object()
-    #     serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
-    #     serializer.is_valid(raise_exception=True)
-    #     serializer.save()
-    #     return Response({"message": "Members updated successfully"}, status=status.HTTP_200_OK)
     @action(detail=True, methods=['post'])
     def assign_members(self, request, pk=None):
         project = self.get_object()
