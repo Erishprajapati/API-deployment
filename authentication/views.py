@@ -15,6 +15,8 @@ from employee.permissions import *
 from datetime import datetime, timezone
 from .serializers import *
 from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
 #TODO: Implement SignupView
 User = get_user_model()
 # authentication/views.py
@@ -190,3 +192,17 @@ class ProtectedView(APIView):
     def get(self, request):
         # Access authenticated user via request.user
         return Response({"message": f"Hello, {request.user.username}!"})
+    
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def social_login_success(request):
+    user = request.user
+    return Response({
+        "message": "Social login successful",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.get_full_name(),
+        }
+    })
