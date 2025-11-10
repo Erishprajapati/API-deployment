@@ -474,7 +474,6 @@ class ListViewSet(viewsets.ModelViewSet):
     queryset = List.objects.all().select_related('project', 'folder')
     serializer_class = ListSerializer
     permission_classes = [IsProjectAuthorized]
-
 class FolderFileViewSet(viewsets.ModelViewSet):
     queryset = FolderFile.objects.all()
     serializer_class = FolderFileSerializer
