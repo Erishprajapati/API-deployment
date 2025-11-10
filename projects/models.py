@@ -5,7 +5,6 @@ from django.utils.translation import gettext_lazy as _
 from django.core.validators import MinValueValidator
 
 # Create your models here.
-
 class Project(Timestamp):
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='projects')
     """
@@ -124,17 +123,6 @@ class Folder(models.Model):
     saves the folder normally and collects the name from parent class and join it with 
     parent folder
     """
-    # def save(self, *args, **kwargs):
-    #     super().save(*args, **kwargs)
-    #     parts = []
-    #     node = self
-    #     while node:
-    #         parts.append(node.title)
-    #         node = node.parent
-
-    #     new_path = '/'.join(reversed(parts))
-    #     if self.path != new_path:
-    #         Folder.objects.filter(pk = self.pk).update(path = new_path) #this updates the path field only
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         parts = []
@@ -145,9 +133,6 @@ class Folder(models.Model):
         new_path = '/'.join(reversed(parts))
         if self.path != new_path:
             Folder.objects.filter(pk=self.pk).update(path=new_path)
-
-
-
     def __str__(self):
         return self.path or self.title
         
@@ -165,7 +150,6 @@ class List(models.Model):
 
     def __str__(self):
         return self.name
-    
 class FolderFile(models.Model):
     folder = models.ForeignKey(Folder, on_delete=models.CASCADE, related_name="files", db_index=True)
     uploaded_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null = True, db_index=True)
