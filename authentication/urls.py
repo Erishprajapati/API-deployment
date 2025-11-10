@@ -14,6 +14,6 @@ urlpatterns = [
     path("login/", LoginView.as_view(), name="login_view"),
     path("logout/", LogoutView.as_view(), name="logout_view"),
     path("refresh-token/", RefreshTokenView.as_view(), name="refresh_token_view"),
-    path('api/social-login-success/', social_login_success, name='social-login-success')
+    path('social-login-success/', social_login_success, name='social-login-success')
 ]
 
