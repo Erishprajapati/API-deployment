@@ -46,7 +46,9 @@ class Tasks(models.Model):
         ("todo", "To Do"),
         ("in_progress", "In Progress"),
         ("completed", "Completed"),
-        ("review", "In Review")
+        ("review", "In Review"),
+        ("rejected", "Rejected"),
+        ("cancelled", "Cancelled")
     ]
     PRIORITY_CHOICES = [
         ("low", "Low"),
