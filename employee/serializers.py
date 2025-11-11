@@ -140,10 +140,13 @@ class EmployeeAdminSerializer(serializers.ModelSerializer):
         model = Employee
         fieds = "__all__"
 class DepartmentSerializer(serializers.ModelSerializer):
-    is_active = serializers.BooleanField(required=False, default=False)
+    is_active = serializers.BooleanField(required=False, default=True)
+    is_open = serializers.SerializerMethodField()
     class Meta:
         model = Department
         fields = "__all__"
+    def get_is_open(self, obj):
+        return obj.is_on_shift()
     def create(self, validated_data: dict) -> Department:
         hr = validated_data.pop("hr", None)
         department = Department.objects.create(**validated_data)
@@ -151,6 +154,15 @@ class DepartmentSerializer(serializers.ModelSerializer):
             department.hr = hr
             department.save()
         return department
+    
+    def validate(self, data):
+        start = data.get('working_start_time')
+        end = data.get('working_end_time')
+        if start and end and start == end:
+            raise serializers.ValidationError(
+                "Working start and end time must be different."
+            )
+        return data
 
     def update(self, instance, validated_data: dict):
     # Update all relevant fields
