@@ -112,7 +112,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 LANGUAGE_CODE = 'en-us'
-TIME_ZONE = 'UTC'
+# TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
@@ -199,7 +199,17 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
+"""reload celery every few minutes"""
+CELERY_BEAT_SCHEDULE = {
+    'update-employee-availability': {
+        'task': 'your_app.tasks.update_all_employee_availability',
+        'schedule': 600.0,  # every 600 seconds = 10 minutes
+    },
+}
+
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 SOCIALACCOUNT_STORE_TOKENS = True
 
+TIME_ZONE = 'Asia/Kathmandu'
+USE_TZ = True
