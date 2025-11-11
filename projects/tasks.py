@@ -4,6 +4,7 @@ from django.utils import timezone
 from .models import Tasks, Project
 from employee.models import Employee
 from django.conf import settings
+from employee.models import EmployeeSchedule
 
 @shared_task
 def send_task_created_email(task_id):
@@ -19,11 +20,11 @@ def send_task_created_email(task_id):
                       f"Project: {task.project.name}\n" \
                       f"Deadline: {task.due_date}\n\nBest,\nProject Management System"
             send_mail(subject, message, 'no-reply@projectsystem.com', [task.assigned_to.user.email])
-            print(f"✅ Email sent successfully for task {task.title} to {task.assigned_to.user.email}")
+            print(f"Email sent successfully for task {task.title} to {task.assigned_to.user.email}")
         else:
             print(f"⚠️ Task {task.title} has no assigned employee with an email.")
     except Tasks.DoesNotExist:
-        print(f"❌ Task with ID {task_id} not found.")
+        print(f"Task with ID {task_id} not found.")
 @shared_task
 def send_project_created_email(project_id):
     """
@@ -78,10 +79,10 @@ Best regards,
 Project Management System
 """
             send_mail(subject, message, 'no-reply@projectsystem.com', [email])
-            print(f"✅ Email sent for project {project.name} to {email}")
+            print(f"Email sent for project {project.name} to {email}")
 
     except Project.DoesNotExist:
-        print(f"❌ Project with ID {project_id} not found.")
+        print(f"Project with ID {project_id} not found.")
 
 @shared_task
 def check_overdue_tasks():
@@ -123,3 +124,12 @@ def send_assignment_email(subject, message, recipient_email):
         [recipient_email],
         fail_silently=False,
     )
+
+@shared_task
+def update_all_employee_availability():
+    schedules = EmployeeSchedule.objects.filter(
+        employee__isnull=False
+    ).select_related('employee__department')
+    
+    for schedule in schedules:
+        schedule.update_availability()

@@ -1,5 +1,4 @@
 # employee/models.py
-
 from django.db import models, transaction
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractUser
@@ -8,6 +7,7 @@ from django.core.validators import RegexValidator
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from multiselectfield import MultiSelectField
+from datetime import datetime, time, timedelta
 
 User = get_user_model()
 """
@@ -20,7 +20,6 @@ class Timestamp(models.Model):
     class Meta:
         abstract = True
 
-
 class Department(models.Model):
     name = models.CharField(_('Name'), max_length=50, unique=True, db_index=True)
     description = models.TextField(_('Description'), blank=True, null=True)
@@ -30,18 +29,63 @@ class Department(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
+    def clean(self):
+        if self.working_start_time and self.working_end_time:
+            if self.working_start_time == self.working_end_time:
+                raise ValidationError("Start and end time must be different.")
+            
+            duration = self.get_shift_duration()
+            max_duration = 8 * 3600
+            if duration.total_seconds() > max_duration:
+                hours = duration.total_seconds() / 3600
+                raise ValidationError(
+                    f"Shift duration ({hours:.1f} hours) exceeds the maximum allowed (8 hours)."
+                )
 
+    def get_shift_duration(self) -> timedelta:
+        start = self.working_start_time
+        end = self.working_end_time
+        if not (start and end):
+            return timedelta(0)
+
+        dummy = datetime.today()
+        start_dt = datetime.combine(dummy, start)
+        end_dt = datetime.combine(dummy, end)
+        if end <= start:
+            end_dt += timedelta(days=1)
+        return end_dt - start_dt
+
+    def is_on_shift(self, now: datetime = None) -> bool:
+        if not self.is_active:
+            return False
+
+        if not (self.working_start_time and self.working_end_time):
+            return False
+
+        if now is None:
+            now = timezone.now()
+        now_time = timezone.localtime(now).time()
+        start, end = self.working_start_time, self.working_end_time
+
+        if start <= end:
+            return start <= now_time <= end
+        else:
+            return now_time >= start or now_time <= end
+        
     def __str__(self):
         return self.name
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         if not self.department_code:
             prefix = self.name[:3].upper()
-            last_count = Department.objects.count() + 1
-            self.department_code = f"{prefix}{last_count:03d}"
+            with transaction.atomic():
+                last_dept = Department.objects.select_for_update().order_by('-id').first()
+                next_num = (last_dept.id + 1) if last_dept else 1
+                self.department_code = f"{prefix}{next_num:03d}"
         super().save(*args, **kwargs)
 
-# Validator for Nepali phone numbers
+# Validation for Nepali phone numbers
 nepali_phone_regex = RegexValidator(
     regex=r'^9[6-8]\d{8}$',
     message=_("Kindly enter valid phone numbers")
@@ -201,26 +245,49 @@ class WorkingHour(Timestamp):
 
 class EmployeeSchedule(Timestamp):
     STATUS_CHOICES = [
-        ('available', 'Available'),
-        ('on_leave', 'On Leave'),
-        ('busy', 'Busy')
+    ('available', 'Available'),
+    ('on_leave', 'On Leave'),
+    ('off_shift', 'Off Shift'),  # ← Better than "busy" for non-working hours
     ]
     employee = models.OneToOneField(Employee, on_delete=models.SET_NULL, null = True, blank = True)
     availability = models.CharField(max_length=20,choices = STATUS_CHOICES, default="available")
-
-    
     def update_availability(self):
-        today = timezone.now()
-        active_leave = self.employee.leaves.filter(
-            start_date__lte = today,
-            end_date__gte = today
+        if not self.employee or not self.employee.department:
+            self.availability = "off_shift"
+            self.save(update_fields=["availability"])
+            return
+
+        now = timezone.now()
+        today_nepal = timezone.localtime(now).date()
+        current_time_nepal = timezone.localtime(now).time()
+
+        """check if there is any approved leave for employee"""
+        on_approved_leave = Leave.objects.filter(
+            employee=self.employee,
+            status="APPROVED",
+            start_date__lte=today_nepal,
+            end_date__gte=today_nepal
         ).exists()
-
-        if active_leave:
+        if on_approved_leave:
             self.availability = "on_leave"
-        else:
-            self.availability = "available"
+            self.save(update_fields=["availability"])
+            return
+        """first check if the department working time is available or not"""
+        dept = self.employee.department
+        if not (dept.working_start_time and dept.working_end_time):
+            self.availability = "off_shift"
+            self.save(update_fields=["availability"])
+            return
 
+        start = dept.working_start_time
+        end = dept.working_end_time
+
+        if start <= end:
+            is_working_hour = start <= current_time_nepal <= end
+        else:
+            is_working_hour = current_time_nepal >= start or current_time_nepal <= end
+
+        self.availability = "available" if is_working_hour else "off_shift"
         self.save(update_fields=["availability"])
 
     def __str__(self):

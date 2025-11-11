@@ -89,61 +89,93 @@ class ProjectViewSet(viewsets.ModelViewSet):
         message = f"Hello {employee.user.first_name}, your project '{project.name}' has been created successfully."
         send_assignment_email.delay(subject, message, employee.user.email)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        project_name = instance.name
+        self.perform_destroy(instance)
+        return Response(
+            {"message": f"Project '{project_name}' has been deleted successfully."},
+            status=status.HTTP_200_OK
+        )
+
     @action(detail=True, methods=['post'])
     def assign_members(self, request, pk=None):
         project = self.get_object()
-        old_members = set(project.members.all())
-        serializer = ProjectMemberUpdateSerializer(project, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        new_members = set(project.members.all()) - old_members
-        for member in new_members:
-            subject = f"Added to Project: {project.name}"
-            message = (
-                f"Hi {member.user.first_name},\n\n"
-                f"You have been added to the project '{project.name}'.\n"
-                f"Project Description: {project.description}\n\n"
-                "Best,\nProject Management System"
+        member_ids = request.data.get('member_ids', [])
+
+        if not isinstance(member_ids, list):
+            return Response(
+                {"error": "member_ids must be a list of employee IDs."},
+                status=status.HTTP_400_BAD_REQUEST
             )
-            send_assignment_email.delay(subject, message, member.user.email)
+        employees = Employee.objects.filter(id__in=member_ids)
+        if len(employees) != len(member_ids):
+            return Response(
+                {"error": "One or more invalid employee IDs."},
+                status=status.HTTP_400_BAD_REQUEST)
+        project.members.set(employees)
+
+        # Notify new members via email (async)
+        for emp in employees:
+            if emp.user and emp.user.email:
+                subject = f"Added to Project: {project.name}"
+                message = (
+                    f"Hi {emp.user.first_name},\n\n"
+                    f"You have been added to the project '{project.name}'.\n"
+                    f"Project Description: {project.description or 'No description'}\n\n"
+                    "Best,\nProject Management System"
+                )
+                send_assignment_email.delay(subject, message, emp.user.email)
 
         return Response(
-            {"message": "Members updated successfully and new members notified."},
+            {"message": "Members assigned successfully and notified via email."},
             status=status.HTTP_200_OK
         )
 
     @action(detail=True, methods=['post'])
     def assign_manager(self, request, pk=None):
         """
-        Assign a project manager (for HR/Admin only) and send email notification.
+        Assign a project manager (HR/Admin only).
+        Expects: {"manager_id": 9}
         """
         employee = getattr(request.user, "employee_profile", None)
         if not employee or employee.role not in [Employee.HR, Employee.ADMIN]:
-            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"error": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
         project = self.get_object()
         manager_id = request.data.get("manager_id")
+
         if not manager_id:
-            return Response({"error": "manager_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "manager_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             manager = Employee.objects.get(id=manager_id, role=Employee.PROJECT_MANAGER)
         except Employee.DoesNotExist:
-            return Response({"error": "Invalid manager"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "Invalid manager ID or user is not a Project Manager."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         project.manager = manager
-        project.save()
-        subject = f"You've been assigned as Project Manager for '{project.name}'"
-        message = (
-            f"Hi {manager.user.first_name},\n\n"
-            f"You have been assigned as the Project Manager for the project '{project.name}'.\n"
-            f"Description: {project.description}\n\n"
-            f"Please log in to the system to view the full project details.\n\n"
-            f"Best Regards,\nProject Management System"
-        )
-        send_assignment_email.delay(subject, message, manager.user.email)
+        project.save(update_fields=['manager'])
+
+        # Send notification email (async)
+        if manager.user and manager.user.email:
+            subject = f"You've been assigned as Project Manager for '{project.name}'"
+            message = (
+                f"Hi {manager.user.first_name},\n\n"
+                f"You have been assigned as the Project Manager for the project '{project.name}'.\n"
+                f"Description: {project.description or 'No description'}\n\n"
+                f"Please log in to the system to view the full project details.\n\n"
+                f"Best Regards,\nProject Management System"
+            )
+            send_assignment_email.delay(subject, message, manager.user.email)
 
         return Response(
-            {"message": f"Manager {manager.user.first_name} assigned and notified via email."},
+            {"message": f"Manager '{manager.user.first_name}' assigned and notified via email."},
             status=status.HTTP_200_OK
         )
 
@@ -205,8 +237,16 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = serializer.save(created_by=employee, project=project)
         send_task_created_email.delay(task.id)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self.perform_destroy(instance)
+        return Response(
+            {"message": f"Task '{instance.title}' has been deleted successfully."},
+            status=status.HTTP_200_OK
+    )
+
     @action(detail=True, methods=['post'])
-    def submit(self, request, pk=None, **kwargs):
+    def submit(self, request, project_pk=None, pk = None, **kwargs):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
@@ -229,7 +269,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
         return Response({"message": "Task submitted for review."}, status=200)
     @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
+    def approve(self, request, project_pk=None, pk = None):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
@@ -250,7 +290,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 
 
     @action(detail=True, methods=['patch'], url_path="cancel")
-    def cancel_task(self, request, pk=None, **kwargs):
+    def cancel_task(self, request, project_pk = None, pk=None, **kwargs):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
@@ -269,7 +309,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         return Response({"message": "Task cancelled successfully."}, status=200)
 
     @action(detail=True, methods=['patch'], url_path="reject")
-    def reject_task(self, request, pk=None, **kwargs):
+    def reject_task(self, request,project_pk = None, pk=None, **kwargs):
         task = self.get_object()
         employee = getattr(request.user, "employee_profile", None)
 
@@ -279,7 +319,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         if task.status != "review":
             return Response({"detail": "Only tasks under review can be rejected."}, status=400)
 
-        task.status = "in_progress"
+        task.status = "rejected"
         task.reviewed_by = employee
         task.save()
         return Response({"message": "Task rejected successfully."}, status=200)
@@ -376,7 +416,7 @@ class FolderViewSet(viewsets.ModelViewSet):
         employee = getattr(self.request.user, "employee_profile", None)
         if not employee:
             raise PermissionDenied("Only employees can upload files.")
-        serializer.save(uploaded_by=employee)
+        serializer.save(created_by=employee)
 
     def update(self, request, *args, **kwargs):
         employee = getattr(request.user, 'employee_profile', None)
@@ -397,7 +437,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     """
     @action(detail = True, methods = ['post'],permission_classes = [IsHROrAdminOrProjectManager]) #this endpoint only accepts POST requests.
     @transaction.atomic
-    def move(self, request, pk = None):
+    def move(self, request, project_pk = None, pk = None):
         """access to folder by primary key"""
         folder = self.get_object()
         #Finds the new parent.
@@ -420,7 +460,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     Marks a folder as archived (is_archived = True).
     """
     @action(detail = True, methods = ['post'], permission_classes = [IsHROrAdminOrProjectManager])
-    def archive(self, request, pk = None):
+    def archive(self, request,project_pk = None, pk = None):
         folder = self.get_object()
         folder.is_archived = True
         folder.is_deleted = False
@@ -431,7 +471,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     Restores a folder from archived/deleted state.
     """
     @action(detail = True, methods = ['post'],permission_classes = [IsHROrAdminOrProjectManager])
-    def restore(self, request, pk = None):
+    def restore(self, request, project_pk = None,pk = None):
         folder = self.get_object()
         folder.is_archived = False
         folder.is_deleted = False
@@ -442,18 +482,13 @@ class FolderViewSet(viewsets.ModelViewSet):
     Marks a folder as deleted (but doesn’t remove it permanently).
     """
     @action(detail = True, methods = ['delete'], permission_classes = [IsHROrAdminOrProjectManager])
-    def soft_delete(self, request, pk = None):
+    def soft_delete(self, request, project_pk = None, pk = None):
         folder = self.get_object()
         folder.is_deleted = True
         folder.save()
         return Response(status = status.HTTP_204_NO_CONTENT)
-    
-    """
-    views the list of folders/projects
-    [root > project > subfolder > current]
-    """
     @action(detail = True,methods = ['get'], permission_classes = [IsProjectAuthorized])
-    def subtree(self, request, pk = None):
+    def subtree(self, request, project_pk = None, pk = None):
         node = self.get_object()
         tree = []
         while node:
@@ -465,7 +500,7 @@ class FolderViewSet(viewsets.ModelViewSet):
     Returns all subfolders under the current folder.
     """
     @action(detail = True, methods = ['get'], permission_classes = [IsProjectAuthorized])
-    def children(self, request, pk = None):
+    def children(self, request,project_pk = None, pk = None):
         node = self.get_object()
         children = self.get_queryset().filter(parent = node)
         return Response(self.get_serializer(children, many = True).data)

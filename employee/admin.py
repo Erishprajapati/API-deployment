@@ -4,6 +4,10 @@ from .models import *
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
     list_display = ('id', 'name', 'is_active')
+
+    def save_model(self, request, obj, form, change):
+        obj.full_clean()  # ← Enforces your clean() method (8-hour rule)
+        super().save_model(request, obj, form, change)
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
     list_display = ('id', 'full_name', 'phone', 'position', 'department')  
@@ -16,16 +20,7 @@ class EmployeeAdmin(admin.ModelAdmin):
 class EmployeeProfileAdmin(admin.ModelAdmin):
     list_display = ("id", "employee", "profile_photo", "citizenship", "contact_agreement")
     search_fields = ("employee__full_name", "employee__email")  # search by employee info
-
-# @admin.register(EmployeeStatus)
-# class EmployeeStatusAdmin(admin.ModelAdmin):
-#     list_display = ('id', 'status_display')  
-
-#     def status_display(self, obj):
-#         return "Active" if obj.is_active else "Inactive"
-#     status_display.short_description = 'Status'  
-
-# admin.site.register(EmployeeStatus)
+    
 @admin.register(Leave)
 class LeaveAdmin(admin.ModelAdmin):
     list_display = ('id', 'employee','start_date', 'end_date', 'leave_reason')
@@ -34,7 +29,7 @@ class LeaveAdmin(admin.ModelAdmin):
     # full_name.short_description = "Employee"
 @admin.register(WorkingHour)
 class WorkingHourAdmin(admin.ModelAdmin):
-    list_display = ('id', 'department', 'DAYS_OF_WEEK_CHOICES', 'start_time', 'end_time')
+    list_display = ('id', 'department', 'days_of_week', 'start_time', 'end_time')
 @admin.register(EmployeeSchedule)
 class EmployeeScheduleAdmin(admin.ModelAdmin):
     list_display = ('id', 'employee', 'availability')

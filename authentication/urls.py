@@ -10,10 +10,10 @@ app_name = "authentication"
 # router.register(r'google', GoogleAuthViewSet, basename='google-auth')
 
 urlpatterns = [
-    path("signup/", SignupView.as_view(), name="signup_view"),
+    # path("signup/", SignupView.as_view(), name="signup_view"),
     path("login/", LoginView.as_view(), name="login_view"),
-    path("logout/", LogoutView.as_view(), name="logout_view"),
-    path("refresh-token/", RefreshTokenView.as_view(), name="refresh_token_view"),
+    # path("logout/", LogoutView.as_view(), name="logout_view"),
+    # path("refresh-token/", RefreshTokenView.as_view(), name="refresh_token_view"),
     path('social-login-success/', social_login_success, name='social-login-success')
 ]
 

@@ -16,34 +16,44 @@ class ProjectDocumentSerializer(serializers.ModelSerializer):
         fields = ['id', 'file', 'description', 'uploaded_at']
 
 class ProjectSerializer(serializers.ModelSerializer):
-    manager = EmployeeNestedMinimalSerializer(read_only=True)
-    manager_ids = serializers.PrimaryKeyRelatedField(
-        queryset=Employee.objects.all(), write_only=True, source='manager'
+    # Override 'manager' to accept ID on input, return object on output
+    manager = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(),write_only=True )
+    manager_details = EmployeeNestedMinimalSerializer(source='manager', read_only=True
     )
-    team_lead = EmployeeNestedMinimalSerializer(read_only=True)
-    team_lead_ids = serializers.PrimaryKeyRelatedField(
-        queryset=Employee.objects.all(), write_only=True, source='team_lead'
+
+    team_lead = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(),
+        write_only=True
     )
-    members = EmployeeNestedMinimalSerializer(read_only=True, many=True)
-    member_ids = serializers.PrimaryKeyRelatedField(
-        queryset=Employee.objects.all(), write_only=True, many=True, source='members', required=False
+    team_lead_details = EmployeeNestedMinimalSerializer(
+        source='team_lead', read_only=True
     )
+
+    members = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(),
+        many=True,
+        write_only=True,
+        required=False
+    )
+    members_details = EmployeeNestedMinimalSerializer(source='members', many=True, read_only=True )
+    end_date =  serializers.DateTimeField(required=True)
+
     documents = ProjectDocumentSerializer(read_only=True, many=True)
 
     def validate_end_date(self, value):
         if value and value < timezone.now():
             raise serializers.ValidationError("End date cannot be in the past.")
         return value
-
     class Meta:
         model = Project
         fields = [
             'id', 'name', 'description', 'department',
-            'manager', 'manager_ids', 'team_lead', 'team_lead_ids',
-            'members', 'member_ids', 'documents',
+            'manager', 'manager_details',
+            'team_lead', 'team_lead_details',
+            'members', 'members_details',
+            'documents',
             'start_date', 'end_date', 'is_active'
         ]
-
 
 class ProjectMemberUpdateSerializer(serializers.ModelSerializer):
     members = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.all(), many=True)
@@ -59,6 +69,15 @@ class ProjectDocumentUploadSerializer(serializers.ModelSerializer):
 class TaskSerializer(serializers.ModelSerializer):
     assigned_to = EmployeeNestedMinimalSerializer(read_only=True)
     created_by = EmployeeNestedMinimalSerializer(read_only=True)
+    due_date = serializers.DateTimeField(required=True)
+
+    assigned_to_id = serializers.PrimaryKeyRelatedField(
+        queryset=Employee.objects.all(),
+        source='assigned_to',      
+        write_only=True,
+        allow_null=True,
+        required=False
+    )
     project = serializers.PrimaryKeyRelatedField(queryset=Project.objects.all())
 
     class Meta:
@@ -68,7 +87,10 @@ class TaskSerializer(serializers.ModelSerializer):
             'created_by', 'created_at', 'updated_at', 'start_date',
             'is_active', 'reviewed_by', 'submitted_at', 'status'
         ]
-
+    def validate_due_date(self, value):
+        if value < timezone.now():
+            raise serializers.ValidationError("Due date cannot be in the past.")
+        return value
     def validate(self, data):
         project = data.get("project")
         title = data.get("title")
@@ -89,14 +111,14 @@ class TaskSerializer(serializers.ModelSerializer):
         return data
 
     def create(self, validated_data):
-        """Attach created_by automatically"""
         request = self.context.get("request")
         employee = getattr(request.user, "employee_profile", None)
         if not employee:
             raise serializers.ValidationError({"detail": "User has no associated employee profile."})
-
-        task = Tasks.objects.create(created_by=employee, **validated_data)
-        return task
+        
+        # created_by is set here, so it must NOT be in read_only_fields
+        validated_data['created_by'] = employee
+        return super().create(validated_data)
 
     def update(self, instance, validated_data):
         """
@@ -114,7 +136,7 @@ class TaskSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
 
         instance.save()
-        return instance
+        return super().update(instance, validated_data)
 
 
 class ProjectEmployeeNestedSerializer(serializers.ModelSerializer):
