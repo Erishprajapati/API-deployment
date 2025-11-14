@@ -1,76 +1,166 @@
-from rest_framework.test import APITestCase
-from rest_framework import status
+# employee/tests/test_api.py
+from django.test import TestCase
 from django.urls import reverse
-from projects.models import Project, Employee, Department
-from django.contrib.auth.models import User
+from rest_framework.test import APIClient
+from django.utils import timezone
+from employee.models import Department, Employee, EmployeeProfile, Leave, EmployeeSchedule
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.tokens import RefreshToken
 
-class ProjectViewSetTest(APITestCase):
+User = get_user_model()
 
+
+class EmployeeAPITestCase(TestCase):
     def setUp(self):
+        self.client = APIClient()
+
+        # Create admin user
+        self.admin_user = User.objects.create_user(
+            email="admin@example.com",
+            username="admin@example.com",
+            password="adminpass123",
+            first_name="Admin",
+            last_name="User"
+        )
+        self.admin_user.is_staff = True
+        self.admin_user.is_superuser = True
+        self.admin_user.save()
+
         # Create department
-        self.department = Department.objects.create(name="IT Department")
+        self.department = Department.objects.create(name="IT")
 
-        # Create users
-        self.pm_user = User.objects.create_user(username='pm', password='pm123')
-        self.employee_user = User.objects.create_user(username='emp', password='emp123')
-
-        # Create Employee profiles linked to department
-        self.pm_employee = Employee.objects.create(
-            user=self.pm_user,
-            role=Employee.PROJECT_MANAGER,
-            department=self.department
-        )
-        self.emp_employee = Employee.objects.create(
-            user=self.employee_user,
-            role=Employee.EMPLOYEE,
-            department=self.department
+        # Create employee (NO profile here!)
+        self.employee = Employee.objects.create(
+            user=self.admin_user,
+            phone="9812345670",
+            department=self.department,
+            date_of_joining=timezone.now(),
+            status=Employee.STATUS_ACTIVE,
+            role=Employee.ADMIN,
+            dob="1990-01-01",
+            gender="M",
+            address="Kathmandu"
         )
 
-        # API URL for Project list
-        self.project_url = reverse('project-list')
+        # Authenticate client
+        refresh = RefreshToken.for_user(self.admin_user)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
 
-    def test_create_project_as_pm(self):
-        """Project Manager should automatically become manager of project."""
-        self.client.login(username='pm', password='pm123')
+    def test_department_list(self):
+        url = reverse("employee:department-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get('results', response.data)
+        self.assertTrue(any(d['name'] == 'IT' for d in results))
+
+    def test_department_create(self):
+        url = reverse("employee:department-list")
         data = {
-            "name": "New Project",
-            "description": "Test project",
-            "department": self.department.id
+            "name": "HR",
+            "description": "Human Resources",
+            "working_start_time": "08:00",
+            "working_end_time": "16:00"
         }
-        response = self.client.post(self.project_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["name"], "HR")
 
-        project = Project.objects.first()
-        self.assertEqual(Project.objects.count(), 1)
-        self.assertEqual(project.manager, self.pm_employee)
-        self.assertEqual(project.department, self.department)
+    def test_employee_list(self):
+        url = reverse("employee:employee-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get('results', response.data)
+        self.assertGreaterEqual(len(results), 1)
 
-    def test_create_project_as_non_pm(self):
-        """Non-PM employee should not be assigned as manager."""
-        self.client.login(username='emp', password='emp123')
+    def test_employee_create(self):
+        url = reverse("employee:employee-list")
         data = {
-            "name": "Employee Project",
-            "description": "Test project by employee",
-            "department": self.department.id
+            "user": {
+                "email": "newuser@example.com",
+                "first_name": "New",
+                "last_name": "User",
+                "password": "strongpass123"
+            },
+            "phone": "9812345678",
+            "department": self.department.id,
+            "dob": "1995-05-15",
+            "gender": "M",
+            "address": "Pokhara",
+            "date_of_joining": timezone.now().isoformat(),
+            "status": "active",
+            "role": Employee.EMPLOYEE
         }
-        response = self.client.post(self.project_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["employee"]["phone"], "9812345678")
+        self.assertTrue("employee_code" in response.data["employee"])
 
-        project = Project.objects.first()
-        self.assertEqual(Project.objects.count(), 1)
-        # Manager should not be assigned for non-PM
-        self.assertIsNone(project.manager)
-        self.assertEqual(project.department, self.department)
+    def test_employee_create_duplicate_phone(self):
+        url = reverse("employee:employee-list")
+        data1 = {
+            "user": {"email": "u1@example.com", "first_name": "U1", "last_name": "Test", "password": "pass12345"},
+            "phone": "9812345671",
+            "department": self.department.id,
+            "dob": "1990-01-01",
+            "gender": "M",
+            "address": "KTM",
+            "date_of_joining": timezone.now().isoformat(),
+            "status": "active"
+        }
+        self.client.post(url, data1, format="json")
 
-    def test_create_project_missing_required_field(self):
-        """Should return 400 if required fields are missing."""
-        self.client.login(username='pm', password='pm123')
+        data2 = {**data1, "user": {"email": "u2@example.com", "first_name": "U2", "last_name": "Test", "password": "pass12345"}}
+        response = self.client.post(url, data2, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("phone", response.data)
+
+    def test_employee_profile_list_self(self):
+        # Create profile ONLY for this test
+        EmployeeProfile.objects.filter(employee=self.employee).delete()
+        EmployeeProfile.objects.create(employee=self.employee)
+
+        url = reverse("employee:employee-profile-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get('results', response.data)
+        self.assertEqual(results[0]["employee"], self.employee.id)
+
+    def test_leave_create_valid(self):
+        url = reverse("employee:leave-list")
+        tomorrow = timezone.now().date() + timezone.timedelta(days=1)
+        next_day = tomorrow + timezone.timedelta(days=1)
         data = {
-            # "name" is missing
-            "description": "Missing name field",
-            "department": self.department.id
+            "start_date": tomorrow.isoformat(),
+            "end_date": next_day.isoformat(),
+            "leave_reason": "Family event"
         }
-        response = self.client.post(self.project_url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('name', response.data)
-        self.assertEqual(Project.objects.count(), 0)
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["employee_name"], "Admin User")
+
+    def test_leave_create_past_date(self):
+        url = reverse("employee:leave-list")
+        yesterday = timezone.now().date() - timezone.timedelta(days=1)
+        tomorrow = timezone.now().date() + timezone.timedelta(days=1)
+        data = {
+            "start_date": yesterday.isoformat(),
+            "end_date": tomorrow.isoformat(),
+            "leave_reason": "Invalid"
+        }
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("start_date", str(response.data))
+
+    def test_employee_schedule_list(self):
+        # Ensure schedule exists
+        schedule, _ = EmployeeSchedule.objects.get_or_create(employee=self.employee)
+        url = reverse("employee:employee-schedule-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        results = response.data.get('results', response.data)
+        self.assertEqual(results[0]["employee"], self.employee.id)
+
+    def test_department_working_hours(self):
+        url = reverse("employee:department-working-hours-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)

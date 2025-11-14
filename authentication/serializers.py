@@ -63,7 +63,7 @@ class SignupSerializer(serializers.Serializer):
                     department=None,
                     position=validated_data.get('position', ''),
                     date_of_joining=timezone.now(),
-                    employee_status=None
+                    # employee_status=None
                 )
 
             except IntegrityError as e:

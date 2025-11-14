@@ -40,7 +40,7 @@ class EmployeeAPITestCase(TestCase):
         )
 
         # Create profile
-        self.profile = EmployeeProfile.objects.create(employee=self.employee)
+        # self.profile = EmployeeProfile.objects.create(employee=self.employee)
 
         # Authenticate client
         refresh = RefreshToken.for_user(self.admin_user)
@@ -50,7 +50,10 @@ class EmployeeAPITestCase(TestCase):
         url = reverse("employee:department-list")
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(any(d['name'] == 'IT' for d in response.data))
+
+        # Handle paginated response
+        results = response.data.get('results', response.data)  # fallback if pagination off
+        self.assertTrue(any(d['name'] == 'IT' for d in results))
 
     def test_department_create(self):
         url = reverse("employee:department-list")
@@ -96,7 +99,7 @@ class EmployeeAPITestCase(TestCase):
     def test_employee_create_duplicate_phone(self):
         url = reverse("employee:employee-list")
         data1 = {
-            "user": {"email": "u1@example.com", "first_name": "U1", "last_name": "Test", "password": "pass123"},
+            "user": {"email": "u1@example.com", "first_name": "U1", "last_name": "Test", "password": "pass12345"},  # 9 chars ✅
             "phone": "9812345671",
             "department": self.department.id,
             "dob": "1990-01-01",
@@ -107,16 +110,10 @@ class EmployeeAPITestCase(TestCase):
         }
         self.client.post(url, data1, format="json")
 
-        data2 = {**data1, "user": {"email": "u2@example.com", "first_name": "U2", "last_name": "Test", "password": "pass123"}}
+        data2 = {**data1, "user": {**data1["user"], "email": "u2@example.com"}}
         response = self.client.post(url, data2, format="json")
         self.assertEqual(response.status_code, 400)
-        self.assertIn("phone", response.data)
-
-    def test_employee_profile_list(self):
-        url = reverse("employee:employee-profile-list")
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]["employee"], self.employee.id)
+        self.assertIn("phone", response.data)  # Now phone error should appear
 
     def test_leave_create_valid(self):
         url = reverse("employee:leave-list")
@@ -149,9 +146,22 @@ class EmployeeAPITestCase(TestCase):
         url = reverse("employee:employee-schedule-list")
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data[0]["employee"], self.employee.id)
+        
+        results = response.data.get('results', response.data)
+        self.assertEqual(results[0]["employee"], self.employee.id)
 
     def test_department_working_hours(self):
         url = reverse("employee:department-working-hours-list")  # Adjust name if needed
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
+    def test_employee_profile_list_self(self):
+    # Ensure only one profile exists
+        EmployeeProfile.objects.filter(employee=self.employee).delete()
+        EmployeeProfile.objects.create(employee=self.employee)
+
+        url = reverse("employee:employee-profile-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        results = response.data.get('results', response.data)
+        self.assertEqual(results[0]["employee"], self.employee.id)
