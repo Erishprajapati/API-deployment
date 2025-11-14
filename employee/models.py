@@ -247,7 +247,7 @@ class EmployeeSchedule(Timestamp):
     STATUS_CHOICES = [
     ('available', 'Available'),
     ('on_leave', 'On Leave'),
-    ('off_shift', 'Off Shift'),  # ← Better than "busy" for non-working hours
+    ('off_shift', 'Off Shift'), 
     ]
     employee = models.OneToOneField(Employee, on_delete=models.SET_NULL, null = True, blank = True)
     availability = models.CharField(max_length=20,choices = STATUS_CHOICES, default="available")
