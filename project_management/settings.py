@@ -164,7 +164,7 @@ SIMPLE_JWT = {
     "SIGNING_KEY": config('JWT_SECRET_KEY', default=SECRET_KEY),
 }
 
-SITE_ID = 3
+SITE_ID = 6
 
 AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
